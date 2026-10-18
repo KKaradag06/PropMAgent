@@ -89,19 +89,35 @@ if menu == "💬 KI-Assistent & Abrechnung":
         ]
 
     # Nachrichten anzeigen
-    for msg in st.session_state.messages:
+    for idx, msg in enumerate(st.session_state.messages):
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
-            if "pdf_path" in msg and os.path.exists(msg["pdf_path"]):
-                with open(msg["pdf_path"], "rb") as f:
-                    pdf_bytes = f.read()
-                st.download_button(
-                    label="📥 Fertiges PDF herunterladen",
-                    data=pdf_bytes,
-                    file_name=os.path.basename(msg["pdf_path"]),
-                    mime="application/pdf",
-                    key=f"dl_{os.path.basename(msg['pdf_path'])}"
-                )
+            has_pdf = "pdf_path" in msg and os.path.exists(msg["pdf_path"])
+            has_docx = "docx_path" in msg and os.path.exists(msg["docx_path"])
+            if has_pdf or has_docx:
+                col_dl1, col_dl2 = st.columns(2)
+                if has_pdf:
+                    with col_dl1:
+                        with open(msg["pdf_path"], "rb") as f:
+                            pdf_bytes = f.read()
+                        st.download_button(
+                            label="📥 PDF herunterladen",
+                            data=pdf_bytes,
+                            file_name=os.path.basename(msg["pdf_path"]),
+                            mime="application/pdf",
+                            key=f"dl_pdf_{idx}_{os.path.basename(msg['pdf_path'])}"
+                        )
+                if has_docx:
+                    with col_dl2:
+                        with open(msg["docx_path"], "rb") as f:
+                            docx_bytes = f.read()
+                        st.download_button(
+                            label="📝 Word/ODT (DOCX) herunterladen",
+                            data=docx_bytes,
+                            file_name=os.path.basename(msg["docx_path"]),
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            key=f"dl_docx_{idx}_{os.path.basename(msg['docx_path'])}"
+                        )
 
     # Chat-Eingabe
     prompt = st.chat_input("Nachricht oder Befehl eingeben...")
@@ -117,22 +133,40 @@ if menu == "💬 KI-Assistent & Abrechnung":
 
         # Agent ausführen
         with st.chat_message("assistant"):
-            with st.spinner("Analysiere Anfrage und berechne Daten..."):
+            with st.spinner("Analysiere Anfrage und erstelle Dokument..."):
                 response = handle_agent_request(prompt, model=model_name)
                 st.markdown(response["message"])
 
                 assistant_msg = {"role": "assistant", "content": response["message"]}
-                if "pdf_path" in response and os.path.exists(response["pdf_path"]):
-                    assistant_msg["pdf_path"] = response["pdf_path"]
-                    with open(response["pdf_path"], "rb") as f:
-                        pdf_bytes = f.read()
-                    st.download_button(
-                        label="📥 Fertiges PDF herunterladen",
-                        data=pdf_bytes,
-                        file_name=os.path.basename(response["pdf_path"]),
-                        mime="application/pdf",
-                        key=f"dl_new_{os.path.basename(response['pdf_path'])}"
-                    )
+                has_pdf = "pdf_path" in response and os.path.exists(response["pdf_path"])
+                has_docx = "docx_path" in response and os.path.exists(response["docx_path"])
+
+                if has_pdf or has_docx:
+                    col_dl1, col_dl2 = st.columns(2)
+                    if has_pdf:
+                        assistant_msg["pdf_path"] = response["pdf_path"]
+                        with col_dl1:
+                            with open(response["pdf_path"], "rb") as f:
+                                pdf_bytes = f.read()
+                            st.download_button(
+                                label="📥 PDF herunterladen",
+                                data=pdf_bytes,
+                                file_name=os.path.basename(response["pdf_path"]),
+                                mime="application/pdf",
+                                key=f"dl_new_pdf_{os.path.basename(response['pdf_path'])}"
+                            )
+                    if has_docx:
+                        assistant_msg["docx_path"] = response["docx_path"]
+                        with col_dl2:
+                            with open(response["docx_path"], "rb") as f:
+                                docx_bytes = f.read()
+                            st.download_button(
+                                label="📝 Word/ODT (DOCX) herunterladen",
+                                data=docx_bytes,
+                                file_name=os.path.basename(response["docx_path"]),
+                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                key=f"dl_new_docx_{os.path.basename(response['docx_path'])}"
+                            )
                 st.session_state.messages.append(assistant_msg)
 
 # TAB 2: Mieter & Einheiten
