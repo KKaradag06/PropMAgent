@@ -6,7 +6,9 @@ from agent.tools import (
     get_all_tenants, 
     find_tenant_by_name, 
     get_expenses_summary, 
-    create_utility_statement_for_tenant
+    create_utility_statement_for_tenant,
+    add_new_tenant,
+    get_all_units
 )
 
 SYSTEM_PROMPT = """Du bist PropMAgent, ein intelligenter deutscher KI-Assistent für Immobilienverwaltung und Vermietung.
@@ -15,16 +17,24 @@ Deine Aufgabe ist es, Nutzeranfragen zu analysieren und strukturierte Aktionen a
 Verfügbare Aktionen:
 1. "generate_statement": Wenn der Nutzer eine Nebenkostenabrechnung oder Abrechnung erstellen möchte.
    Parameter: {"action": "generate_statement", "tenant_name": "Nachname oder Vorname", "year": 2025}
-2. "list_tenants": Wenn der Nutzer wissen möchte, welche Mieter es gibt oder Mieterdaten sucht.
+2. "list_tenants": Wenn der Nutzer wissen möchte, welche Mieter es gibt, wer aktuell im Objekt wohnt oder Mieterdaten sucht.
    Parameter: {"action": "list_tenants"}
-3. "list_expenses": Wenn der Nutzer Ausgaben oder Betriebskosten sehen möchte.
+3. "add_tenant": Wenn der Nutzer einen neuen Mieter anlegen oder hinzufügen möchte.
+   Parameter: {
+     "action": "add_tenant", 
+     "first_name": "Vorname oder leer", 
+     "last_name": "Nachname oder leer", 
+     "unit_number": "z.B. Wohnung 1 oder leer",
+     "cold_rent": 900.0,
+     "utility_advance": 200.0,
+     "lease_start": "2025-01-01"
+   }
+4. "list_expenses": Wenn der Nutzer Ausgaben oder Betriebskosten sehen möchte.
    Parameter: {"action": "list_expenses", "year": 2025}
-4. "general_chat": Für allgemeine Fragen zum Mietrecht, zur Bedienung oder Erklärungen.
+5. "general_chat": Für allgemeine Fragen, Begrüßungen oder wenn Informationen erfragt werden.
    Parameter: {"action": "general_chat", "answer": "Deine freundliche und fundierte Antwort"}
 
 Antworte IMMER im gültigen JSON-Format ohne Markdown-Codeblöcke wie ```json. Nur das rohe JSON.
-Beispiel:
-{"action": "generate_statement", "tenant_name": "Schmidt", "year": 2025}
 """
 
 def parse_user_intent_ollama(user_prompt: str, model: str = "llama3") -> Dict[str, Any]:
@@ -44,16 +54,20 @@ def parse_user_intent_ollama(user_prompt: str, model: str = "llama3") -> Dict[st
             content = re.sub(r"^```(?:json)?\s*", "", content)
             content = re.sub(r"\s*```$", "", content)
         return json.loads(content)
-    except Exception as e:
-        # Fallback Heuristik, falls Modell nicht erreichbar oder unformatiert
+    except Exception:
+        # Fallback Heuristik
         prompt_lower = user_prompt.lower()
         
         # Jahr ermitteln (z.B. 2024, 2025)
         year_match = re.search(r"\b(202\d)\b", user_prompt)
         year = int(year_match.group(1)) if year_match else 2025
         
+        # Neuer Mieter anlegen
+        if any(w in prompt_lower for w in ["hinzufügen", "anlegen", "neu", "erstellen"]) and "mieter" in prompt_lower and not ("abrechnung" in prompt_lower or "nebenkosten" in prompt_lower):
+            return {"action": "add_tenant"}
+
+        # Nebenkostenabrechnung
         if "abrechnung" in prompt_lower or "nebenkosten" in prompt_lower or "pdf" in prompt_lower:
-            # Mietername suchen
             tenants = get_all_tenants()
             found_name = None
             for t in tenants:
@@ -62,9 +76,12 @@ def parse_user_intent_ollama(user_prompt: str, model: str = "llama3") -> Dict[st
                     break
             if found_name:
                 return {"action": "generate_statement", "tenant_name": found_name, "year": year}
+            return {"action": "general_chat", "answer": "Für welchen Mieter soll ich die Abrechnung erstellen? (Z. B. Schmidt oder Mustermann)"}
         
-        if "mieter" in prompt_lower:
+        # Mieter auflisten
+        if any(w in prompt_lower for w in ["welche mieter", "wer wohnt", "mieterliste", "alle mieter", "mieter"]) and not any(w in prompt_lower for w in ["hinzufügen", "anlegen"]):
             return {"action": "list_tenants"}
+            
         if "kosten" in prompt_lower or "ausgaben" in prompt_lower or "beleg" in prompt_lower:
             return {"action": "list_expenses", "year": year}
             
@@ -108,19 +125,96 @@ def handle_agent_request(user_prompt: str, model: str = "llama3") -> Dict[str, A
 
     elif action == "list_tenants":
         tenants = get_all_tenants()
+        if not tenants:
+            return {
+                "success": True,
+                "message": "Es sind aktuell keine Mieter in der Datenbank hinterlegt.",
+                "data": []
+            }
+        
+        msg = f"### 👥 Aktuelle Mieter im Objekt ({len(tenants)} aktiv):\n\n"
+        for idx, t in enumerate(tenants, 1):
+            msg += f"{idx}. **{t['first_name']} {t['last_name']}**\n"
+            msg += f"   - 🚪 **Wohnung:** {t['unit_number']} ({t['area_sqm']:.1f} m²)\n"
+            msg += f"   - 💶 **Kaltmiete:** {t['cold_rent']:.2f} € | **NK-Vorauszahlung:** {t['utility_advance']:.2f} €\n"
+            msg += f"   - 📅 **Mietbeginn:** {t['lease_start']}\n"
+            if t.get("phone"):
+                msg += f"   - 📞 **Telefon:** {t['phone']}\n"
+            if t.get("email"):
+                msg += f"   - ✉️ **E-Mail:** {t['email']}\n"
+            msg += "\n"
+
         return {
             "success": True,
-            "message": f"Es wurden {len(tenants)} Mieter in deiner Datenbank gefunden.",
+            "message": msg,
             "data": tenants
         }
+
+    elif action == "add_tenant":
+        last_name = intent.get("last_name") or ""
+        first_name = intent.get("first_name") or ""
+        
+        # Falls keine Namen übergeben wurden, Details erfragen
+        if not last_name and not first_name:
+            units = get_all_units()
+            unit_list = ", ".join([u["unit_number"] for u in units]) if units else "Wohnung 1, Wohnung 2"
+            return {
+                "success": True,
+                "message": (
+                    "Ja, sehr gerne! Um einen neuen Mieter anzulegen, nenne mir bitte folgende Daten:\n\n"
+                    "- **Name:** z. B. *Sabine Meier*\n"
+                    f"- **Wohnung:** (Verfügbar: *{unit_list}*)\n"
+                    "- **Kaltmiete & Nebenkostenvorauszahlung:** z. B. *850 € Kaltmiete, 200 € NK*\n"
+                    "- **Mietbeginn:** z. B. *01.05.2025*\n\n"
+                    "💡 *Beispiel-Eingabe:* `Füge Sabine Meier hinzu für Wohnung 2, Kaltmiete 850, NK 200 ab 01.05.2025`"
+                ),
+                "data": None
+            }
+
+        cold_rent = float(intent.get("cold_rent") or 0.0)
+        utility_advance = float(intent.get("utility_advance") or 0.0)
+        lease_start = intent.get("lease_start") or "2025-01-01"
+        unit_number = intent.get("unit_number") or ""
+        
+        try:
+            res = add_new_tenant(
+                first_name=first_name,
+                last_name=last_name,
+                unit_search=unit_number,
+                cold_rent=cold_rent,
+                utility_advance=utility_advance,
+                lease_start=lease_start
+            )
+            return {
+                "success": True,
+                "message": (
+                    f"✅ **Mieter {first_name} {last_name} wurde erfolgreich angelegt!**\n\n"
+                    f"- **Kaltmiete:** {cold_rent:.2f} €\n"
+                    f"- **NK-Vorauszahlung:** {utility_advance:.2f} €\n"
+                    f"- **Mietbeginn:** {lease_start}\n\n"
+                    "Der Mieter ist ab sofort in deiner Mieterliste und für Nebenkostenabrechnungen verfügbar."
+                ),
+                "data": res
+            }
+        except Exception as err:
+            return {
+                "success": False,
+                "message": f"Fehler beim Anlegen des Mieters: {str(err)}",
+                "data": None
+            }
 
     elif action == "list_expenses":
         year = intent.get("year", 2025)
         expenses = get_expenses_summary(year)
         total = sum(e["amount"] for e in expenses)
+        
+        msg = f"### 📊 Betriebskosten für das Abrechnungsjahr {year} (Gesamt: {total:,.2f} €):\n\n"
+        for e in expenses:
+            msg += f"- **{e['category']}**: {e['amount']:.2f} € *(Umlage: {e['allocation_key']}, Details: {e['description']})*\n"
+            
         return {
             "success": True,
-            "message": f"Betriebskosten für {year}: Insgesamt {len(expenses)} Positionen mit Gesamtsumme **{total:.2f} €**.",
+            "message": msg,
             "data": expenses
         }
 
