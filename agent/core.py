@@ -98,31 +98,31 @@ def parse_user_intent_ollama(user_prompt: str, model: str = "llama3") -> Dict[st
             "unit_number": unit_str
         }
 
-        # Nebenkostenabrechnung
-        if "abrechnung" in prompt_lower or "nebenkosten" in prompt_lower or "pdf" in prompt_lower:
-            tenants = get_all_tenants()
-            found_name = None
-            for t in tenants:
-                if t["last_name"].lower() in prompt_lower or t["first_name"].lower() in prompt_lower:
-                    found_name = t["last_name"]
-                    break
-            if found_name:
-                return {"action": "generate_statement", "tenant_name": found_name, "year": year}
-            return {"action": "general_chat", "answer": "Für welchen Mieter soll ich die Abrechnung erstellen? (Z. B. Schmidt oder Mustermann)"}
+    # Nebenkostenabrechnung
+    if "abrechnung" in prompt_lower or "nebenkosten" in prompt_lower or "pdf" in prompt_lower:
+        tenants = get_all_tenants()
+        found_name = None
+        for t in tenants:
+            if t["last_name"].lower() in prompt_lower or t["first_name"].lower() in prompt_lower:
+                found_name = t["last_name"]
+                break
+        if found_name:
+            return {"action": "generate_statement", "tenant_name": found_name, "year": year}
+        return {"action": "general_chat", "answer": "Für welchen Mieter soll ich die Abrechnung erstellen? (Z. B. Schmidt oder Mustermann)"}
+    
+    # Mieter auflisten
+    if any(w in prompt_lower for w in ["welche mieter", "wer wohnt", "mieterliste", "alle mieter", "mieter"]) and not any(w in prompt_lower for w in ["hinzufügen", "anlegen"]):
+        return {"action": "list_tenants"}
         
-        # Mieter auflisten
-        if any(w in prompt_lower for w in ["welche mieter", "wer wohnt", "mieterliste", "alle mieter", "mieter"]) and not any(w in prompt_lower for w in ["hinzufügen", "anlegen"]):
-            return {"action": "list_tenants"}
-            
-        if "kosten" in prompt_lower or "ausgaben" in prompt_lower or "beleg" in prompt_lower:
-            return {"action": "list_expenses", "year": year}
-            
-        return {"action": "general_chat", "answer": "Wie kann ich dir bei deinen Mietern, Objekten oder Nebenkostenabrechnungen helfen?"}
+    if "kosten" in prompt_lower or "ausgaben" in prompt_lower or "beleg" in prompt_lower:
+        return {"action": "list_expenses", "year": year}
+        
+    return {"action": "general_chat", "answer": "Wie kann ich dir bei deinen Mietern, Objekten oder Nebenkostenabrechnungen helfen?"}
 
 def handle_agent_request(user_prompt: str, model: str = "llama3") -> Dict[str, Any]:
     """Zentrale Verarbeitungslogik für Benutzeranfragen."""
-    intent = parse_user_intent_ollama(user_prompt, model=model)
-    action = intent.get("action")
+    intent = parse_user_intent_ollama(user_prompt, model=model) or {}
+    action = intent.get("action", "general_chat")
 
     if action == "generate_statement":
         tenant_name = intent.get("tenant_name", "")
