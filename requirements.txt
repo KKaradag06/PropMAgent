@@ -1,0 +1,5 @@
+streamlit
+pandas
+reportlab
+ollama
+python-dotenv

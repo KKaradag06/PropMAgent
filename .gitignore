@@ -1,0 +1,30 @@
+# Python Bytecode & Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+
+# Data & Privacy (Local SQLite DBs, customer data, generated PDFs)
+data/
+*.db
+*.sqlite
+*.sqlite3
+*.pdf
+
+# Environment & Secret files
+.env
+.env.local
+*.secret
+
+# IDEs & OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
