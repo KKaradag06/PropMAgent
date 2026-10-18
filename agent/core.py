@@ -22,13 +22,14 @@ Verfügbare Aktionen:
 3. "add_tenant": Wenn der Nutzer einen neuen Mieter anlegen oder hinzufügen möchte.
    Parameter: {
      "action": "add_tenant", 
-     "first_name": "Vorname oder leer", 
-     "last_name": "Nachname oder leer", 
-     "unit_number": "z.B. Wohnung 1 oder leer",
+     "first_name": "Vorname (Pflicht)", 
+     "last_name": "Nachname (Pflicht)", 
+     "unit_number": "z.B. Wohnung 1 (optional)",
      "cold_rent": 900.0,
      "utility_advance": 200.0,
      "lease_start": "2025-01-01"
    }
+   WICHTIG: Nur Vorname und Nachname sind Pflicht! Wenn der Nutzer z. B. nur sagt "Füge Mieter Max Mustermann hinzu", setze first_name="Max", last_name="Mustermann", cold_rent=0, utility_advance=0.
 4. "list_expenses": Wenn der Nutzer Ausgaben oder Betriebskosten sehen möchte.
    Parameter: {"action": "list_expenses", "year": 2025}
 5. "general_chat": Für allgemeine Fragen, Begrüßungen oder wenn Informationen erfragt werden.
@@ -53,18 +54,49 @@ def parse_user_intent_ollama(user_prompt: str, model: str = "llama3") -> Dict[st
         if content.startswith("```"):
             content = re.sub(r"^```(?:json)?\s*", "", content)
             content = re.sub(r"\s*```$", "", content)
-        return json.loads(content)
+        res = json.loads(content)
+        # Wenn add_tenant erkannt wurde, aber Namen fehlen, Fallback-Prüfung erlauben
+        if res.get("action") == "add_tenant" and not res.get("first_name") and not res.get("last_name"):
+            pass
+        else:
+            return res
     except Exception:
-        # Fallback Heuristik
-        prompt_lower = user_prompt.lower()
+        pass
+
+    # Heuristik & Fallback
+    prompt_lower = user_prompt.lower()
+    
+    # Jahr ermitteln (z.B. 2024, 2025)
+    year_match = re.search(r"\b(202\d)\b", user_prompt)
+    year = int(year_match.group(1)) if year_match else 2025
+    
+    # Neuer Mieter anlegen
+    if any(w in prompt_lower for w in ["hinzufügen", "anlegen", "neu", "erstellen"]) and "mieter" in prompt_lower and not ("abrechnung" in prompt_lower or "nebenkosten" in prompt_lower):
+        # Versuche Namen nach 'mieter' oder 'name' zu extrahieren (z. B. "Mieter Hans Peter", "neuen Mieter Max Mustermann hinzufügen")
+        name_match = re.search(r"(?:mieter(?:\s+neu(?:en)?)?|name(?:n)?)\s+([A-ZÄÖÜ][a-zäöüß]+)\s+([A-ZÄÖÜ][a-zäöüß]+)", user_prompt)
+        first_name = name_match.group(1) if name_match else ""
+        last_name = name_match.group(2) if name_match else ""
         
-        # Jahr ermitteln (z.B. 2024, 2025)
-        year_match = re.search(r"\b(202\d)\b", user_prompt)
-        year = int(year_match.group(1)) if year_match else 2025
-        
-        # Neuer Mieter anlegen
-        if any(w in prompt_lower for w in ["hinzufügen", "anlegen", "neu", "erstellen"]) and "mieter" in prompt_lower and not ("abrechnung" in prompt_lower or "nebenkosten" in prompt_lower):
-            return {"action": "add_tenant"}
+        # Miete suchen
+        rent_match = re.search(r"(?:kaltmiete|miete)\s*[:=]?\s*(\d+(?:[.,]\d+)?)", prompt_lower)
+        cold_rent = float(rent_match.group(1).replace(",", ".")) if rent_match else 0.0
+
+        # NK suchen
+        nk_match = re.search(r"(?:nk|nebenkosten|vorauszahlung)\s*[:=]?\s*(\d+(?:[.,]\d+)?)", prompt_lower)
+        utility_advance = float(nk_match.group(1).replace(",", ".")) if nk_match else 0.0
+
+        # Wohnung suchen
+        unit_match = re.search(r"(?:wohnung|whg\.?)\s*(\d+[a-zA-Z]?)", prompt_lower)
+        unit_str = f"Wohnung {unit_match.group(1)}" if unit_match else ""
+
+        return {
+            "action": "add_tenant",
+            "first_name": first_name,
+            "last_name": last_name,
+            "cold_rent": cold_rent,
+            "utility_advance": utility_advance,
+            "unit_number": unit_str
+        }
 
         # Nebenkostenabrechnung
         if "abrechnung" in prompt_lower or "nebenkosten" in prompt_lower or "pdf" in prompt_lower:

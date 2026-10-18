@@ -53,12 +53,64 @@ def add_new_tenant(
         "unit_id": unit_id
     }
 
+def update_tenant(
+    tenant_id: int,
+    first_name: str,
+    last_name: str,
+    unit_id: int,
+    cold_rent: float = 0.0,
+    utility_advance: float = 0.0,
+    lease_start: Optional[str] = None,
+    lease_end: Optional[str] = None,
+    email: Optional[str] = "",
+    phone: Optional[str] = "",
+    is_active: int = 1
+) -> bool:
+    """Aktualisiert die Daten eines bestehenden Mieters."""
+    from database.db import execute_db
+    if not first_name.strip() or not last_name.strip():
+        raise ValueError("Vorname und Nachname dürfen nicht leer sein.")
+        
+    execute_db("""
+        UPDATE tenants
+        SET first_name = ?,
+            last_name = ?,
+            unit_id = ?,
+            cold_rent = ?,
+            utility_advance = ?,
+            lease_start = ?,
+            lease_end = ?,
+            email = ?,
+            phone = ?,
+            is_active = ?
+        WHERE id = ?;
+    """, (
+        first_name.strip(),
+        last_name.strip(),
+        unit_id,
+        float(cold_rent or 0.0),
+        float(utility_advance or 0.0),
+        lease_start,
+        lease_end if lease_end else None,
+        (email or "").strip(),
+        (phone or "").strip(),
+        1 if is_active else 0,
+        tenant_id
+    ))
+    return True
+
+def delete_tenant(tenant_id: int) -> bool:
+    """Löscht einen Mieter aus der Datenbank."""
+    from database.db import execute_db
+    execute_db("DELETE FROM tenants WHERE id = ?;", (tenant_id,))
+    return True
+
 def get_all_tenants() -> List[Dict[str, Any]]:
     """Gibt alle Mieter mit Wohneinheit und Liegenschaft zurück."""
     sql = """
         SELECT 
-            t.id as tenant_id, t.first_name, t.last_name, t.email, t.phone,
-            t.cold_rent, t.utility_advance, t.lease_start, t.lease_end,
+            t.id as tenant_id, t.unit_id, t.first_name, t.last_name, t.email, t.phone,
+            t.cold_rent, t.utility_advance, t.lease_start, t.lease_end, t.is_active,
             u.unit_number, u.area_sqm,
             p.name as property_name
         FROM tenants t
