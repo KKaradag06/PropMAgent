@@ -163,3 +163,80 @@ def generate_utility_bill_pdf(bill_data: Dict[str, Any], custom_message: str = "
 
     doc.build(elements)
     return pdf_path
+
+def generate_formal_letter_pdf(
+    recipient_name: str,
+    subject: str,
+    letter_text: str,
+    address_line: str = "",
+    sender_name: str = "Hausverwaltung",
+    property_name: str = "Wohnanlage"
+) -> str:
+    """
+    Erstellt ein formelles Brief-PDF (z. B. für Mieterhöhung, Ankündigung, Mahnung).
+    """
+    os.makedirs(REPORTS_DIR, exist_ok=True)
+    
+    clean_name = "".join(c for c in recipient_name if c.isalnum() or c in (" ", "_", "-")).strip().replace(" ", "_")
+    today_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"Brief_{clean_name}_{today_str}.pdf"
+    pdf_path = os.path.join(REPORTS_DIR, filename)
+
+    doc = SimpleDocTemplate(
+        pdf_path,
+        pagesize=A4,
+        rightMargin=2.5 * cm,
+        leftMargin=2.5 * cm,
+        topMargin=2.5 * cm,
+        bottomMargin=2.5 * cm
+    )
+
+    styles = getSampleStyleSheet()
+    style_normal = styles["Normal"]
+    style_normal.fontSize = 10
+    style_normal.leading = 15
+
+    style_title = ParagraphStyle("LetterTitle", parent=styles["Heading2"], fontSize=13, leading=17, textColor=colors.HexColor("#0f172a"))
+    style_sender = ParagraphStyle("LetterSender", parent=style_normal, fontSize=8, leading=10, textColor=colors.gray)
+
+    elements = []
+
+    # 1. Absenderzeile
+    sender_top = f"{sender_name} · {property_name}"
+    elements.append(Paragraph(sender_top, style_sender))
+    elements.append(Spacer(1, 0.6 * cm))
+
+    # 2. Empfängerfeld
+    addr_block = f"<b>{recipient_name}</b><br/>"
+    if address_line:
+        addr_block += f"{address_line}<br/>"
+    else:
+        addr_block += "Musterstraße 1<br/>10115 Berlin"
+    elements.append(Paragraph(addr_block, style_normal))
+    elements.append(Spacer(1, 1.2 * cm))
+
+    # 3. Datum
+    date_display = datetime.now().strftime("%d.%m.%Y")
+    elements.append(Paragraph(f"<para align='right'>{date_display}</para>", style_normal))
+    elements.append(Spacer(1, 0.5 * cm))
+
+    # 4. Betreff
+    elements.append(Paragraph(f"<b>{subject}</b>", style_title))
+    elements.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#e2e8f0"), spaceAfter=15, spaceBefore=8))
+
+    # 5. Brieftext (Absätze trennen)
+    paragraphs = [p.strip() for p in letter_text.split("\n\n") if p.strip()]
+    if not paragraphs:
+        paragraphs = [letter_text]
+
+    for p in paragraphs:
+        formatted_p = p.replace("\n", "<br/>")
+        elements.append(Paragraph(formatted_p, style_normal))
+        elements.append(Spacer(1, 0.35 * cm))
+
+    elements.append(Spacer(1, 0.8 * cm))
+    elements.append(Paragraph(f"Mit freundlichen Grüßen,<br/><br/><b>{sender_name}</b>", style_normal))
+
+    doc.build(elements)
+    return pdf_path
+
