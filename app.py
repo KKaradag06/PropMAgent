@@ -1,6 +1,7 @@
 from datetime import datetime, date
 import os
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 from database.db import init_db, query_db
 from database.seed_data import seed
@@ -42,6 +43,63 @@ st.markdown("""
     .stChatMessage {
         border-radius: 10px;
     }
+    /* Grünes Häkchen für heruntergeladene Dateien */
+    button[data-testid="stDownloadButton"] span[data-testid="stIconMaterial"] {
+        color: #16a34a !important;
+        font-weight: 700 !important;
+        font-size: 1.25rem !important;
+    }
+    .prop-instant-check {
+        color: #16a34a !important;
+        font-weight: bold;
+        display: inline-block;
+    }
+    /* Zentrierter Floating Scroll-to-Bottom Button */
+    #prop-scroll-to-bottom-btn {
+        position: fixed;
+        bottom: 85px;
+        left: 50%;
+        transform: translate(-50%, 10px) scale(0.9);
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background-color: #ffffff;
+        color: #0f172a;
+        border: 1px solid #cbd5e1;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        z-index: 9999;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.25s ease, transform 0.25s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    #prop-scroll-to-bottom-btn.visible {
+        opacity: 1;
+        pointer-events: auto;
+        transform: translate(-50%, 0) scale(1);
+    }
+    #prop-scroll-to-bottom-btn:hover {
+        background-color: #f1f5f9;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+        transform: translate(-50%, -2px) scale(1.06);
+    }
+    #prop-scroll-to-bottom-btn:active {
+        transform: translate(-50%, 0) scale(0.96);
+    }
+    @media (prefers-color-scheme: dark) {
+        #prop-scroll-to-bottom-btn {
+            background-color: #1e293b;
+            color: #f8fafc;
+            border-color: #475569;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+        }
+        #prop-scroll-to-bottom-btn:hover {
+            background-color: #334155;
+        }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -63,6 +121,13 @@ with st.sidebar:
     st.info("🔒 **100% Lokal:** Alle Daten und KI-Anfragen laufen vollständig auf deinem PC.")
 
 if menu == "💬 KI-Assistent & Abrechnung":
+    should_scroll = st.session_state.get("scroll_to_chat", False)
+    if should_scroll:
+        del st.session_state["scroll_to_chat"]
+
+    def register_download(filename: str):
+        st.session_state[f"downloaded_{filename}"] = True
+
     st.header("Intelligenter Verwaltungsassistent")
     st.write("Erstelle Nebenkostenabrechnungen, stelle Fragen zu Mietern oder lass dir Auswertungen anzeigen.")
 
@@ -71,6 +136,109 @@ if menu == "💬 KI-Assistent & Abrechnung":
         f"{t.get('salutation', 'Herr')} {t['first_name']} {t['last_name']} ({t.get('unit_number', '')})": f"{t['first_name']} {t['last_name']}"
         for t in tenants
     } if tenants else {"(Keine Mieter in Datenbank erfasst)": ""}
+
+    # Anker für sanftes Scrollen
+    st.markdown('<div id="prop-quick-actions"></div>', unsafe_allow_html=True)
+
+    # Injektion des Floating Scroll-to-Bottom Buttons und Auto-Scroll Scripts
+    components.html(
+        f"""
+        <script>
+        (function() {{
+            const doc = window.parent.document || document;
+            const win = window.parent || window;
+            
+            // Floating scroll-to-bottom button
+            let btn = doc.getElementById('prop-scroll-to-bottom-btn');
+            if (!btn) {{
+                btn = doc.createElement('button');
+                btn.id = 'prop-scroll-to-bottom-btn';
+                btn.setAttribute('aria-label', 'Nach unten scrollen');
+                btn.title = 'Nach unten scrollen';
+                btn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                    <polyline points="19 12 12 19 5 12"></polyline>
+                </svg>`;
+                doc.body.appendChild(btn);
+                
+                btn.addEventListener('click', function(e) {{
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const main = doc.querySelector('section.main') || doc.documentElement || doc.body;
+                    if (main) {{
+                        main.scrollTo({{ top: main.scrollHeight, behavior: 'smooth' }});
+                    }}
+                }});
+            }}
+
+            function checkScroll() {{
+                const isChatActive = !!doc.getElementById('prop-quick-actions');
+                if (!isChatActive) {{
+                    btn.style.display = 'none';
+                    btn.classList.remove('visible');
+                    return;
+                }}
+                btn.style.display = 'flex';
+                const scrollContainer = doc.querySelector('section.main') || doc.documentElement || doc.body;
+                if (!scrollContainer) return;
+                const distFromBottom = scrollContainer.scrollHeight - scrollContainer.clientHeight - scrollContainer.scrollTop;
+                if (distFromBottom > 180) {{
+                    btn.classList.add('visible');
+                }} else {{
+                    btn.classList.remove('visible');
+                }}
+            }}
+
+            const main = doc.querySelector('section.main') || win;
+            if (main && !main._propScrollBound) {{
+                main.addEventListener('scroll', checkScroll, {{ passive: true }});
+                main._propScrollBound = true;
+            }}
+            win.addEventListener('scroll', checkScroll, {{ passive: true }});
+            checkScroll();
+
+            // Sofortiges Feedback beim Klick auf Download-Buttons
+            if (!doc._propDlBound) {{
+                doc.addEventListener('click', function(e) {{
+                    const dlBtn = e.target.closest('button[data-testid="stDownloadButton"]');
+                    if (dlBtn) {{
+                        let check = dlBtn.querySelector('.prop-instant-check');
+                        if (!check) {{
+                            check = doc.createElement('span');
+                            check.className = 'prop-instant-check';
+                            check.innerHTML = '&#10003;';
+                            check.style.color = '#16a34a';
+                            check.style.fontWeight = 'bold';
+                            check.style.marginLeft = '8px';
+                            check.style.fontSize = '1.15rem';
+                            dlBtn.appendChild(check);
+                        }}
+                    }}
+                }});
+                doc._propDlBound = true;
+            }}
+
+            // Sanftes Scrollen beim Klick auf Aktionsbuttons (Vorlagen bleiben oben sichtbar)
+            {"doAutoScroll();" if should_scroll else ""}
+            function doAutoScroll() {{
+                [80, 250, 500].forEach(delay => {{
+                    setTimeout(function() {{
+                        const preset = doc.getElementById('prop-quick-actions');
+                        const scrollContainer = doc.querySelector('section.main') || doc.documentElement || doc.body;
+                        if (preset && scrollContainer) {{
+                            const rect = preset.getBoundingClientRect();
+                            const targetScroll = scrollContainer.scrollTop + rect.top - 12;
+                            scrollContainer.scrollTo({{ top: Math.max(0, targetScroll), behavior: 'smooth' }});
+                        }}
+                    }}, delay);
+                }});
+            }}
+        }})();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
 
     # Strukturierte Vorlagen & Schnellaktionen
     with st.container(border=True):
@@ -108,6 +276,7 @@ if menu == "💬 KI-Assistent & Abrechnung":
                         if tgt_t:
                             action_word = "Mieterhöhung" if adj_mode == "Erhöhung" else "Mietsenkung"
                             st.session_state.quick_prompt = f"Schreibe eine {action_word} an {tgt_t} um {adj_val.strip()} zum rechtlich nächstmöglichen Zeitpunkt"
+                            st.session_state.scroll_to_chat = True
                             st.rerun()
 
             elif sub_action == "Zahlungserinnerung":
@@ -127,6 +296,7 @@ if menu == "💬 KI-Assistent & Abrechnung":
                             amt_txt = f"über {debt_amt.strip()}" if debt_amt.strip() else ""
                             due_txt = f"mit Frist {due_date.strip()}" if due_date.strip() else ""
                             st.session_state.quick_prompt = f"Schreibe eine Zahlungserinnerung an {tgt_t} {amt_txt} {due_txt}".strip()
+                            st.session_state.scroll_to_chat = True
                             st.rerun()
 
             elif sub_action == "Mietbescheinigung":
@@ -140,6 +310,7 @@ if menu == "💬 KI-Assistent & Abrechnung":
                     if st.button("Bescheinigung erstellen", type="primary", use_container_width=True, key="btn_mb"):
                         if tgt_t:
                             st.session_state.quick_prompt = f"Erstelle eine Mietbescheinigung für {tgt_t}"
+                            st.session_state.scroll_to_chat = True
                             st.rerun()
 
             elif sub_action == "Abmahnung Zahlungsverzug":
@@ -156,6 +327,7 @@ if menu == "💬 KI-Assistent & Abrechnung":
                         if tgt_t:
                             detail = f": {reason_txt.strip()}" if reason_txt.strip() else ""
                             st.session_state.quick_prompt = f"Schreibe eine formelle Abmahnung an {tgt_t} wegen Zahlungsverzugs{detail}"
+                            st.session_state.scroll_to_chat = True
                             st.rerun()
 
         elif category == "Nebenkosten":
@@ -183,6 +355,7 @@ if menu == "💬 KI-Assistent & Abrechnung":
                         if tgt_t:
                             action_word = "Nebenkostenerhöhung" if adj_mode == "Erhöhung" else "Nebenkostensenkung"
                             st.session_state.quick_prompt = f"Schreibe einen Brief an {tgt_t} wegen {action_word} um {adj_val.strip()} zum rechtlich nächstmöglichen Zeitpunkt"
+                            st.session_state.scroll_to_chat = True
                             st.rerun()
 
             elif sub_action == "Nebenkostenabrechnung":
@@ -198,6 +371,7 @@ if menu == "💬 KI-Assistent & Abrechnung":
                     if st.button("Abrechnung generieren", type="primary", use_container_width=True, key="btn_nka_bill"):
                         if tgt_t:
                             st.session_state.quick_prompt = f"Erstelle die Nebenkostenabrechnung {int(yr_val)} für {tgt_t}"
+                            st.session_state.scroll_to_chat = True
                             st.rerun()
 
             elif sub_action == "Kostenübersicht":
@@ -209,6 +383,7 @@ if menu == "💬 KI-Assistent & Abrechnung":
                     st.write("")
                     if st.button("Kosten anzeigen", type="primary", use_container_width=True, key="btn_ko"):
                         st.session_state.quick_prompt = f"Zeige alle Betriebskosten für das Abrechnungsjahr {int(yr_val)}"
+                        st.session_state.scroll_to_chat = True
                         st.rerun()
 
         elif category == "Andere":
@@ -233,6 +408,7 @@ if menu == "💬 KI-Assistent & Abrechnung":
                     if st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_hw"):
                         if tgt_t:
                             st.session_state.quick_prompt = f"Schreibe ein Ankündigungsschreiben an {tgt_t} bezüglich Handwerkerarbeiten: {work_txt.strip()}"
+                            st.session_state.scroll_to_chat = True
                             st.rerun()
 
             elif sub_action == "Bankverbindung mitteilen":
@@ -249,6 +425,7 @@ if menu == "💬 KI-Assistent & Abrechnung":
                         if tgt_t:
                             detail = f": {bank_txt.strip()}" if bank_txt.strip() else ""
                             st.session_state.quick_prompt = f"Schreibe eine Mitteilung an {tgt_t} über die Aktualisierung der Bankverbindung für Mietzahlungen{detail}"
+                            st.session_state.scroll_to_chat = True
                             st.rerun()
 
             elif sub_action == "Abmahnung Hausordnung":
@@ -264,6 +441,7 @@ if menu == "💬 KI-Assistent & Abrechnung":
                     if st.button("Abmahnung erstellen", type="primary", use_container_width=True, key="btn_ah"):
                         if tgt_t:
                             st.session_state.quick_prompt = f"Schreibe eine formelle Abmahnung an {tgt_t} wegen vertragswidrigen Verhaltens: {incident_txt.strip()}"
+                            st.session_state.scroll_to_chat = True
                             st.rerun()
 
             elif sub_action == "Mieterübersicht":
@@ -273,6 +451,7 @@ if menu == "💬 KI-Assistent & Abrechnung":
                 with c_btn:
                     if st.button("Mieterliste anzeigen", type="primary", use_container_width=True, key="btn_ml"):
                         st.session_state.quick_prompt = "Welche Mieter wohnen aktuell im Objekt?"
+                        st.session_state.scroll_to_chat = True
                         st.rerun()
 
     # Chat-Historie im Session-State
@@ -291,28 +470,42 @@ if menu == "💬 KI-Assistent & Abrechnung":
             has_pdf = "pdf_path" in msg and os.path.exists(msg["pdf_path"])
             has_docx = "docx_path" in msg and os.path.exists(msg["docx_path"])
             if has_pdf or has_docx:
-                col_dl1, col_dl2 = st.columns(2)
+                col_dl1, col_dl2, _ = st.columns([1.6, 2.2, 3.2])
                 if has_pdf:
+                    pdf_filename = os.path.basename(msg["pdf_path"])
+                    is_pdf_downloaded = st.session_state.get(f"downloaded_{pdf_filename}", False)
                     with col_dl1:
                         with open(msg["pdf_path"], "rb") as f:
                             pdf_bytes = f.read()
                         st.download_button(
-                            label="PDF herunterladen (DIN 5008)",
+                            label="PDF herunterladen",
                             data=pdf_bytes,
-                            file_name=os.path.basename(msg["pdf_path"]),
+                            file_name=pdf_filename,
                             mime="application/pdf",
-                            key=f"dl_pdf_{idx}_{os.path.basename(msg['pdf_path'])}"
+                            key=f"dl_pdf_{idx}_{pdf_filename}",
+                            on_click=register_download,
+                            args=(pdf_filename,),
+                            icon=":material/check:" if is_pdf_downloaded else None,
+                            icon_position="right",
+                            use_container_width=True
                         )
                 if has_docx:
+                    docx_filename = os.path.basename(msg["docx_path"])
+                    is_docx_downloaded = st.session_state.get(f"downloaded_{docx_filename}", False)
                     with col_dl2:
                         with open(msg["docx_path"], "rb") as f:
                             docx_bytes = f.read()
                         st.download_button(
                             label="Word / DOCX herunterladen",
                             data=docx_bytes,
-                            file_name=os.path.basename(msg["docx_path"]),
+                            file_name=docx_filename,
                             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                            key=f"dl_docx_{idx}_{os.path.basename(msg['docx_path'])}"
+                            key=f"dl_docx_{idx}_{docx_filename}",
+                            on_click=register_download,
+                            args=(docx_filename,),
+                            icon=":material/check:" if is_docx_downloaded else None,
+                            icon_position="right",
+                            use_container_width=True
                         )
 
     # Chat-Eingabe
@@ -338,30 +531,44 @@ if menu == "💬 KI-Assistent & Abrechnung":
                 has_docx = "docx_path" in response and os.path.exists(response["docx_path"])
 
                 if has_pdf or has_docx:
-                    col_dl1, col_dl2 = st.columns(2)
+                    col_dl1, col_dl2, _ = st.columns([1.6, 2.2, 3.2])
                     if has_pdf:
                         assistant_msg["pdf_path"] = response["pdf_path"]
+                        pdf_filename = os.path.basename(response["pdf_path"])
+                        is_pdf_downloaded = st.session_state.get(f"downloaded_{pdf_filename}", False)
                         with col_dl1:
                             with open(response["pdf_path"], "rb") as f:
                                 pdf_bytes = f.read()
                             st.download_button(
-                                label="PDF herunterladen (DIN 5008)",
+                                label="PDF herunterladen",
                                 data=pdf_bytes,
-                                file_name=os.path.basename(response["pdf_path"]),
+                                file_name=pdf_filename,
                                 mime="application/pdf",
-                                key=f"dl_new_pdf_{os.path.basename(response['pdf_path'])}"
+                                key=f"dl_new_pdf_{pdf_filename}",
+                                on_click=register_download,
+                                args=(pdf_filename,),
+                                icon=":material/check:" if is_pdf_downloaded else None,
+                                icon_position="right",
+                                use_container_width=True
                             )
                     if has_docx:
                         assistant_msg["docx_path"] = response["docx_path"]
+                        docx_filename = os.path.basename(response["docx_path"])
+                        is_docx_downloaded = st.session_state.get(f"downloaded_{docx_filename}", False)
                         with col_dl2:
                             with open(response["docx_path"], "rb") as f:
                                 docx_bytes = f.read()
                             st.download_button(
                                 label="Word / DOCX herunterladen",
                                 data=docx_bytes,
-                                file_name=os.path.basename(response["docx_path"]),
+                                file_name=docx_filename,
                                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                key=f"dl_new_docx_{os.path.basename(response['docx_path'])}"
+                                key=f"dl_new_docx_{docx_filename}",
+                                on_click=register_download,
+                                args=(docx_filename,),
+                                icon=":material/check:" if is_docx_downloaded else None,
+                                icon_position="right",
+                                use_container_width=True
                             )
                 st.session_state.messages.append(assistant_msg)
 
