@@ -18,7 +18,7 @@ from agent.tools import (
 
 # Streamlit Page Config
 st.set_page_config(
-    page_title="PropMAgent - Smarte Immobilienverwaltung",
+    page_title="PropMAgent",
     page_icon="🏢",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -274,8 +274,11 @@ if menu == "💬 KI-Assistent & Abrechnung":
                     st.write("")
                     if st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_ma"):
                         if tgt_t:
+                            adj_raw = adj_val.strip()
+                            if adj_raw and not any(sym in adj_raw.lower() for sym in ["%", "€", "euro"]):
+                                adj_raw = f"{adj_raw} €"
                             action_word = "Mieterhöhung" if adj_mode == "Erhöhung" else "Mietsenkung"
-                            st.session_state.quick_prompt = f"Schreibe eine {action_word} an {tgt_t} um {adj_val.strip()} zum rechtlich nächstmöglichen Zeitpunkt"
+                            st.session_state.quick_prompt = f"Schreibe eine {action_word} an {tgt_t} um {adj_raw} zum rechtlich nächstmöglichen Zeitpunkt"
                             st.session_state.scroll_to_chat = True
                             st.rerun()
 
@@ -285,17 +288,31 @@ if menu == "💬 KI-Assistent & Abrechnung":
                     sel_t_lbl = st.selectbox("Mieter auswählen", list(tenant_options.keys()), key="act_t_sel_ze")
                     tgt_t = tenant_options.get(sel_t_lbl, "")
                 with c_amt:
-                    debt_amt = st.text_input("Rückstand (€)", placeholder="z. B. 950 €", key="act_debt_amt")
+                    debt_amt = st.text_input("Rückstand", value="80 €", placeholder="z. B. 80 €", key="act_debt_amt")
                 with c_due:
-                    due_date = st.text_input("Zahlungsfrist", placeholder="z. B. 7 Tage", key="act_due_date")
+                    due_date = st.text_input("Zahlungsfrist", value="7 Tage", placeholder="z. B. 7 Tage", key="act_due_date")
                 with c_btn:
                     st.write("")
                     st.write("")
                     if st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_ze"):
                         if tgt_t:
-                            amt_txt = f"über {debt_amt.strip()}" if debt_amt.strip() else ""
-                            due_txt = f"mit Frist {due_date.strip()}" if due_date.strip() else ""
-                            st.session_state.quick_prompt = f"Schreibe eine Zahlungserinnerung an {tgt_t} {amt_txt} {due_txt}".strip()
+                            amt_raw = debt_amt.strip()
+                            if amt_raw and not any(sym in amt_raw.lower() for sym in ["€", "euro"]):
+                                amt_raw = f"{amt_raw}€"
+                            due_raw = due_date.strip()
+                            if due_raw and not any(unit in due_raw.lower() for unit in ["tag", "woche", "monat"]):
+                                due_raw = f"{due_raw} Tagen"
+                            elif "tage" in due_raw.lower() and not "tagen" in due_raw.lower():
+                                due_raw = re.sub(r"\btage\b", "Tagen", due_raw, flags=re.I)
+
+                            parts = []
+                            if amt_raw:
+                                parts.append(f"einem Rückstand von {amt_raw}")
+                            if due_raw:
+                                parts.append(f"einer Frist von {due_raw}")
+
+                            detail_str = f" mit {' und '.join(parts)}" if parts else ""
+                            st.session_state.quick_prompt = f"Schreibe eine Zahlungserinnerung an {tgt_t}{detail_str}"
                             st.session_state.scroll_to_chat = True
                             st.rerun()
 
@@ -309,7 +326,7 @@ if menu == "💬 KI-Assistent & Abrechnung":
                     st.write("")
                     if st.button("Bescheinigung erstellen", type="primary", use_container_width=True, key="btn_mb"):
                         if tgt_t:
-                            st.session_state.quick_prompt = f"Erstelle eine Mietbescheinigung für {tgt_t}"
+                            st.session_state.quick_prompt = f"Erstelle eine Miet- und Mietschuldenfreiheitsbescheinigung für {tgt_t}"
                             st.session_state.scroll_to_chat = True
                             st.rerun()
 
@@ -325,8 +342,8 @@ if menu == "💬 KI-Assistent & Abrechnung":
                     st.write("")
                     if st.button("Abmahnung erstellen", type="primary", use_container_width=True, key="btn_az"):
                         if tgt_t:
-                            detail = f": {reason_txt.strip()}" if reason_txt.strip() else ""
-                            st.session_state.quick_prompt = f"Schreibe eine formelle Abmahnung an {tgt_t} wegen Zahlungsverzugs{detail}"
+                            detail = f" bezüglich: {reason_txt.strip()}" if reason_txt.strip() else " wegen Zahlungsverzugs der monatlichen Mietzahlungen"
+                            st.session_state.quick_prompt = f"Schreibe eine formelle Abmahnung an {tgt_t}{detail}"
                             st.session_state.scroll_to_chat = True
                             st.rerun()
 
@@ -353,8 +370,11 @@ if menu == "💬 KI-Assistent & Abrechnung":
                     st.write("")
                     if st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_nka"):
                         if tgt_t:
+                            adj_raw = adj_val.strip()
+                            if adj_raw and not any(sym in adj_raw.lower() for sym in ["%", "€", "euro"]):
+                                adj_raw = f"{adj_raw} €"
                             action_word = "Nebenkostenerhöhung" if adj_mode == "Erhöhung" else "Nebenkostensenkung"
-                            st.session_state.quick_prompt = f"Schreibe einen Brief an {tgt_t} wegen {action_word} um {adj_val.strip()} zum rechtlich nächstmöglichen Zeitpunkt"
+                            st.session_state.quick_prompt = f"Schreibe eine {action_word} an {tgt_t} um {adj_raw} zum rechtlich nächstmöglichen Zeitpunkt"
                             st.session_state.scroll_to_chat = True
                             st.rerun()
 
@@ -407,7 +427,8 @@ if menu == "💬 KI-Assistent & Abrechnung":
                     st.write("")
                     if st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_hw"):
                         if tgt_t:
-                            st.session_state.quick_prompt = f"Schreibe ein Ankündigungsschreiben an {tgt_t} bezüglich Handwerkerarbeiten: {work_txt.strip()}"
+                            detail = f" bezüglich: {work_txt.strip()}" if work_txt.strip() else " bezüglich anstehender Wartungs- und Handwerkerarbeiten"
+                            st.session_state.quick_prompt = f"Schreibe ein Ankündigungsschreiben an {tgt_t}{detail}"
                             st.session_state.scroll_to_chat = True
                             st.rerun()
 
@@ -423,7 +444,7 @@ if menu == "💬 KI-Assistent & Abrechnung":
                     st.write("")
                     if st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_bv"):
                         if tgt_t:
-                            detail = f": {bank_txt.strip()}" if bank_txt.strip() else ""
+                            detail = f" mit folgendem Hinweis: {bank_txt.strip()}" if bank_txt.strip() else ""
                             st.session_state.quick_prompt = f"Schreibe eine Mitteilung an {tgt_t} über die Aktualisierung der Bankverbindung für Mietzahlungen{detail}"
                             st.session_state.scroll_to_chat = True
                             st.rerun()
@@ -440,7 +461,8 @@ if menu == "💬 KI-Assistent & Abrechnung":
                     st.write("")
                     if st.button("Abmahnung erstellen", type="primary", use_container_width=True, key="btn_ah"):
                         if tgt_t:
-                            st.session_state.quick_prompt = f"Schreibe eine formelle Abmahnung an {tgt_t} wegen vertragswidrigen Verhaltens: {incident_txt.strip()}"
+                            detail = f" wegen vertragswidrigen Verhaltens: {incident_txt.strip()}" if incident_txt.strip() else " wegen wiederholter Verletzung der Hausordnung"
+                            st.session_state.quick_prompt = f"Schreibe eine formelle Abmahnung an {tgt_t}{detail}"
                             st.session_state.scroll_to_chat = True
                             st.rerun()
 
