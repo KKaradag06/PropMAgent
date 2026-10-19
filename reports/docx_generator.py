@@ -1,7 +1,8 @@
 import os
+import re
 from datetime import datetime
 from docx import Document
-from docx.shared import Pt, Inches, RGBColor
+from docx.shared import Pt, Cm, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 REPORTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "reports")
@@ -11,12 +12,22 @@ def generate_formal_letter_docx(
     subject: str,
     letter_text: str,
     address_line: str = "",
-    sender_name: str = "Hausverwaltung",
-    property_name: str = "Wohnanlage Sonnenhang"
+    sender_name: str = "Hausverwaltung Sonnenhang",
+    property_name: str = "Wohnanlage Sonnenhang",
+    sender_street: str = "Lindenstraße 14",
+    sender_city: str = "10115 Berlin",
+    sender_phone: str = "+49 30 12345678",
+    sender_email: str = "verwaltung@sonnenhang.de"
 ) -> str:
     """
-    Erstellt ein formelles DOCX-Word-Dokument (DIN 5008 ähnlich),
-    das sowohl in Microsoft Word als auch in LibreOffice / OpenOffice geöffnet und editiert werden kann.
+    Erstellt ein formelles DOCX-Word-Dokument nach DIN 5008:2020 Form B:
+    - Seitenränder: Oben 4,5 cm, Links 2,5 cm, Unten 2,5 cm, Rechts 2,0 cm
+    - Anschriftfeld: max. 8,5 cm breit (für DIN-lang Fensterbriefumschläge)
+    - Rücksendeangabe: 8 pt (unterstrichen)
+    - Eigene Adresse & Datum: rechtsbündig
+    - Betreff: 2 Zeilen unter dem Datum, fett, ohne vorangestelltes Wort 'Betreff'
+    - Textformatierung: 11 pt, einfacher Zeilenabstand, keine Erstzeileneinrückung, Leerzeile zwischen Absätzen
+    - Grußformel: nach einer Leerzeile, OHNE Komma ('Mit freundlichen Grüßen'), 3 Leerzeilen für Unterschrift
     """
     os.makedirs(REPORTS_DIR, exist_ok=True)
     clean_name = "".join(c for c in recipient_name if c.isalnum() or c in (" ", "_", "-")).strip().replace(" ", "_")
@@ -26,79 +37,126 @@ def generate_formal_letter_docx(
 
     doc = Document()
     
-    # Seitenränder einstellen
+    # 1. DIN 5008 Form B Seitenränder: Oben 4.5 cm, Links 2.5 cm, Unten 2.5 cm, Rechts 2.0 cm
     for section in doc.sections:
-        section.top_margin = Inches(0.8)
-        section.bottom_margin = Inches(0.8)
-        section.left_margin = Inches(1.0)
-        section.right_margin = Inches(1.0)
+        section.top_margin = Cm(4.5)
+        section.bottom_margin = Cm(2.5)
+        section.left_margin = Cm(2.5)
+        section.right_margin = Cm(2.0)
 
-    # 1. Absenderzeile (klein, grau)
-    p_sender = doc.add_paragraph()
-    r_sender = p_sender.add_run(f"{sender_name} · {property_name}")
-    r_sender.font.name = "Arial"
-    r_sender.font.size = Pt(8.5)
-    r_sender.font.color.rgb = RGBColor(120, 120, 120)
-    p_sender.paragraph_format.space_after = Pt(14)
+    # Betreff und Fließtext bereinigen
+    clean_subject = re.sub(r"^(?:Betreff|Subject)\s*:\s*", "", subject, flags=re.IGNORECASE).strip()
+    clean_text = re.sub(r"\n*(?:Mit freundlichen Grüßen|Freundliche Grüße|Herzliche Grüße)[,\s]*.*$", "", letter_text, flags=re.IGNORECASE | re.DOTALL).strip()
 
-    # 2. Empfängeradresse
-    p_addr = doc.add_paragraph()
-    r_name = p_addr.add_run(f"{recipient_name}\n")
+    # 2. Anschriftfeld (links, max. 8,5 cm) und Info-Block mit Datum (rechts, 8,0 cm)
+    table = doc.add_table(rows=1, cols=2)
+    table.autofit = False
+    table.columns[0].width = Cm(8.5)
+    table.columns[1].width = Cm(8.0)
+
+    cell_left = table.cell(0, 0)
+    cell_right = table.cell(0, 1)
+
+    # Linke Spalte (Anschriftzone):
+    # Rücksendeangabe (genau 8 pt unterstrichen)
+    p_ret = cell_left.paragraphs[0]
+    p_ret.paragraph_format.space_before = Pt(0)
+    p_ret.paragraph_format.space_after = Pt(8)
+    r_ret = p_ret.add_run(f"{sender_name} · {sender_street} · {sender_city}")
+    r_ret.font.name = "Arial"
+    r_ret.font.size = Pt(8.0)
+    r_ret.font.underline = True
+    r_ret.font.color.rgb = RGBColor(100, 116, 139)
+
+    # Empfänger-Adresse (11 pt)
+    p_rec = cell_left.add_paragraph()
+    p_rec.paragraph_format.space_before = Pt(0)
+    p_rec.paragraph_format.space_after = Pt(0)
+    p_rec.paragraph_format.line_spacing = 1.0
+    r_name = p_rec.add_run(f"{recipient_name}\n")
     r_name.font.name = "Arial"
-    r_name.bold = True
-    r_name.font.size = Pt(10.5)
-    
+    r_name.font.size = Pt(11.0)
+    r_name.font.bold = True
+
     clean_addr = address_line.replace("<br/>", "\n").replace("<br>", "\n")
     addr_lines = [line.strip() for line in clean_addr.split("\n") if line.strip()]
     if not addr_lines:
         addr_lines = ["Musterstraße 1", "10115 Berlin"]
-        
-    for line in addr_lines:
-        r_line = p_addr.add_run(f"{line}\n")
+
+    for idx, line in enumerate(addr_lines):
+        suffix = "\n" if idx < len(addr_lines) - 1 else ""
+        r_line = p_rec.add_run(f"{line}{suffix}")
         r_line.font.name = "Arial"
-        r_line.font.size = Pt(10.5)
-    p_addr.paragraph_format.space_after = Pt(20)
+        r_line.font.size = Pt(11.0)
 
-    # 3. Datum (rechtsbündig)
-    p_date = doc.add_paragraph()
-    p_date.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    r_date = p_date.add_run(datetime.now().strftime("%d.%m.%Y"))
-    r_date.font.name = "Arial"
-    r_date.font.size = Pt(10.5)
-    p_date.paragraph_format.space_after = Pt(16)
+    # Rechte Spalte (Info-Block & Datum, rechtsbündig):
+    date_display = datetime.now().strftime("%d.%m.%Y")
+    p_info = cell_right.paragraphs[0]
+    p_info.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    p_info.paragraph_format.space_before = Pt(0)
+    p_info.paragraph_format.space_after = Pt(0)
+    p_info.paragraph_format.line_spacing = 1.0
 
-    # 4. Betreff (fett, hervorgehoben)
+    r_snd1 = p_info.add_run(f"{sender_name}\n")
+    r_snd1.font.name = "Arial"
+    r_snd1.font.size = Pt(10.0)
+    r_snd1.font.bold = True
+
+    info_text = (
+        f"{property_name}\n"
+        f"{sender_street}\n"
+        f"{sender_city}\n"
+        f"Tel.: {sender_phone}\n"
+        f"E-Mail: {sender_email}\n\n"
+        f"Datum: {date_display}"
+    )
+    r_snd2 = p_info.add_run(info_text)
+    r_snd2.font.name = "Arial"
+    r_snd2.font.size = Pt(9.5)
+    r_snd2.font.color.rgb = RGBColor(51, 65, 85)
+
+    # 3. Betreff: 2 Zeilen unter dem Datum, fett, ohne das Wort 'Betreff'
     p_subj = doc.add_paragraph()
-    r_subj = p_subj.add_run(subject)
+    p_subj.paragraph_format.space_before = Pt(24)
+    p_subj.paragraph_format.space_after = Pt(24)
+    r_subj = p_subj.add_run(clean_subject)
     r_subj.font.name = "Arial"
     r_subj.bold = True
-    r_subj.font.size = Pt(12.5)
+    r_subj.font.size = Pt(12.0)
     r_subj.font.color.rgb = RGBColor(15, 23, 42)
-    p_subj.paragraph_format.space_after = Pt(14)
 
-    # 5. Brieftext (Absätze sauber formatieren)
-    paragraphs = [p.strip() for p in letter_text.split("\n\n") if p.strip()]
+    # 4. Fließtext: 11 pt, einfacher Zeilenabstand (1.0), keine Erstzeileneinrückung, 1 Leerzeile nach Absatz
+    paragraphs = [p.strip() for p in clean_text.split("\n\n") if p.strip()]
     if not paragraphs:
-        paragraphs = [letter_text]
+        paragraphs = [clean_text]
 
     for p in paragraphs:
         p_body = doc.add_paragraph()
+        p_body.paragraph_format.left_indent = Pt(0)
+        p_body.paragraph_format.first_line_indent = Pt(0)
+        p_body.paragraph_format.line_spacing = 1.0
+        p_body.paragraph_format.space_after = Pt(11)  # Leerzeile
         r_body = p_body.add_run(p)
         r_body.font.name = "Arial"
-        r_body.font.size = Pt(10.5)
-        p_body.paragraph_format.line_spacing = 1.15
-        p_body.paragraph_format.space_after = Pt(8)
+        r_body.font.size = Pt(11.0)
+        r_body.font.color.rgb = RGBColor(15, 23, 42)
 
-    # 6. Grußformel & Signatur
+    # 5. Grußformel: nach einer Leerzeile, OHNE Komma, 3 Leerzeilen für handschriftliche Unterschrift
+    p_gruss = doc.add_paragraph()
+    p_gruss.paragraph_format.space_before = Pt(11)
+    p_gruss.paragraph_format.space_after = Pt(33)  # 3 Leerzeilen für Unterschrift
+    r_gruss = p_gruss.add_run("Mit freundlichen Grüßen")
+    r_gruss.font.name = "Arial"
+    r_gruss.font.size = Pt(11.0)
+
+    # Name des Unterzeichners / Absenders in Druckschrift
     p_sign = doc.add_paragraph()
-    p_sign.paragraph_format.space_before = Pt(14)
-    r_sign1 = p_sign.add_run("Mit freundlichen Grüßen,\n\n\n")
-    r_sign1.font.name = "Arial"
-    r_sign1.font.size = Pt(10.5)
-    r_sign2 = p_sign.add_run(sender_name)
-    r_sign2.font.name = "Arial"
-    r_sign2.bold = True
-    r_sign2.font.size = Pt(10.5)
+    p_sign.paragraph_format.space_before = Pt(0)
+    p_sign.paragraph_format.space_after = Pt(0)
+    r_sign = p_sign.add_run(sender_name)
+    r_sign.font.name = "Arial"
+    r_sign.font.size = Pt(11.0)
+    r_sign.font.bold = True
 
     doc.save(docx_path)
     return docx_path

@@ -3,7 +3,8 @@ from datetime import datetime
 from typing import Dict, Any
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.units import cm
+from reportlab.lib.units import cm, mm
+pt = 1
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
@@ -153,7 +154,7 @@ def generate_utility_bill_pdf(bill_data: Dict[str, Any], custom_message: str = "
     elements.append(t)
     elements.append(Spacer(1, 0.8 * cm))
 
-    # 6. Schlusssatz & Grußformel
+    # 6. Schlusssatz & Grußformel (DIN 5008: ohne Komma, 3 Leerzeilen für Unterschrift)
     if balance > 0:
         conclusion = f"Wir bitten Sie höflich, den Nachzahlungsbetrag in Höhe von <b>{balance:.2f} €</b> innerhalb von 30 Tagen auf das bekannte Mietkonto zu überweisen."
     elif balance < 0:
@@ -162,8 +163,8 @@ def generate_utility_bill_pdf(bill_data: Dict[str, Any], custom_message: str = "
         conclusion = "Ihr Abrechnungskonto für das Jahr ist exakt ausgeglichen. Eine Zahlung ist nicht erforderlich."
 
     elements.append(Paragraph(conclusion, style_normal))
-    elements.append(Spacer(1, 0.6 * cm))
-    elements.append(Paragraph("Mit freundlichen Grüßen,<br/>Ihre Hausverwaltung", style_normal))
+    elements.append(Spacer(1, 0.5 * cm))
+    elements.append(Paragraph("Mit freundlichen Grüßen<br/><br/><br/><b>Ihre Hausverwaltung</b>", style_normal))
 
     doc.build(elements)
     return pdf_path
@@ -173,12 +174,26 @@ def generate_formal_letter_pdf(
     subject: str,
     letter_text: str,
     address_line: str = "",
-    sender_name: str = "Hausverwaltung",
-    property_name: str = "Wohnanlage"
+    sender_name: str = "Hausverwaltung Sonnenhang",
+    property_name: str = "Wohnanlage Sonnenhang",
+    sender_street: str = "Lindenstraße 14",
+    sender_city: str = "10115 Berlin",
+    sender_phone: str = "+49 30 12345678",
+    sender_email: str = "verwaltung@sonnenhang.de"
 ) -> str:
     """
-    Erstellt ein formelles Brief-PDF (z. B. für Mieterhöhung, Ankündigung, Mahnung).
+    Erstellt ein formelles Brief-PDF nach DIN 5008:2020 Form B:
+    - Seitenränder: Oben 4,5 cm, Links 2,5 cm, Unten 2,5 cm, Rechts 2,0 cm
+    - Anschriftfeld: max. 8,5 cm breit (Fensterumschlag DIN lang)
+    - Rücksendeangabe: 8 pt (unterstrichen)
+    - Eigene Adresse & Datum: rechtsbündig
+    - Betreff: 2 Zeilen unter dem Datum, fett, ohne vorangestelltes Wort 'Betreff'
+    - Textformatierung: 11 pt, einfacher Zeilenabstand, keine Erstzeileneinrückung, Leerzeile zwischen Absätzen
+    - Grußformel: nach einer Leerzeile, OHNE Komma ('Mit freundlichen Grüßen'), 3 Leerzeilen für Unterschrift
     """
+    import re
+    from reportlab.platypus import KeepTogether
+
     os.makedirs(REPORTS_DIR, exist_ok=True)
     
     clean_name = "".join(c for c in recipient_name if c.isalnum() or c in (" ", "_", "-")).strip().replace(" ", "_")
@@ -186,60 +201,144 @@ def generate_formal_letter_pdf(
     filename = f"Brief_{clean_name}_{today_str}.pdf"
     pdf_path = os.path.join(REPORTS_DIR, filename)
 
+    # DIN 5008 Form B Seitenränder: Oben 4.5 cm, Links 2.5 cm, Unten 2.5 cm, Rechts 2.0 cm
     doc = SimpleDocTemplate(
         pdf_path,
         pagesize=A4,
-        rightMargin=2.5 * cm,
+        topMargin=4.5 * cm,
         leftMargin=2.5 * cm,
-        topMargin=2.5 * cm,
-        bottomMargin=2.5 * cm
+        bottomMargin=2.5 * cm,
+        rightMargin=2.0 * cm
     )
 
     styles = getSampleStyleSheet()
-    style_normal = styles["Normal"]
-    style_normal.fontSize = 10
-    style_normal.leading = 15
+    
+    # 11 pt Fließtext, einfacher Zeilenabstand (14 pt leading)
+    style_body = ParagraphStyle(
+        "DIN5008_Body",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=11,
+        leading=14,
+        firstLineIndent=0,
+        spaceAfter=11,
+        textColor=colors.HexColor("#0f172a")
+    )
 
-    style_title = ParagraphStyle("LetterTitle", parent=styles["Heading2"], fontSize=13, leading=17, textColor=colors.HexColor("#0f172a"))
-    style_sender = ParagraphStyle("LetterSender", parent=style_normal, fontSize=8, leading=10, textColor=colors.gray)
+    # Rücksendeangabe im Sichtfenster: genau 8 pt (darf laut DIN nicht unter 8 pt fallen)
+    style_sender_return = ParagraphStyle(
+        "DIN5008_SenderReturn",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=8,
+        leading=10,
+        textColor=colors.HexColor("#64748b")
+    )
+
+    # Empfängeradresse im Anschriftfeld: 11 pt, leading 14 pt
+    style_recipient = ParagraphStyle(
+        "DIN5008_Recipient",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=11,
+        leading=14,
+        textColor=colors.HexColor("#0f172a")
+    )
+
+    # Info-Block rechts (Eigene Adresse & Datum): rechtsbündig
+    style_info_block = ParagraphStyle(
+        "DIN5008_InfoBlock",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=9.5,
+        leading=13.5,
+        alignment=2,  # TA_RIGHT
+        textColor=colors.HexColor("#334155")
+    )
+
+    # Betreffzeile: 12 pt, fett, kein vorangestelltes "Betreff:"
+    style_subject = ParagraphStyle(
+        "DIN5008_Subject",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=12,
+        leading=16,
+        textColor=colors.HexColor("#0f172a")
+    )
+
+    # Betreff und Fließtext bereinigen
+    clean_subject = re.sub(r"^(?:Betreff|Subject)\s*:\s*", "", subject, flags=re.IGNORECASE).strip()
+    clean_text = re.sub(r"\n*(?:Mit freundlichen Grüßen|Freundliche Grüße|Herzliche Grüße)[,\s]*.*$", "", letter_text, flags=re.IGNORECASE | re.DOTALL).strip()
 
     elements = []
 
-    # 1. Absenderzeile
-    sender_top = f"{sender_name} · {property_name}"
-    elements.append(Paragraph(sender_top, style_sender))
-    elements.append(Spacer(1, 0.6 * cm))
+    # 1. Anschriftfeld (links, max. 8,5 cm) und Info-Block mit Datum (rechts, 8,0 cm)
+    # Rücksendeangabe
+    sender_return_line = f"<u>{sender_name} · {sender_street} · {sender_city}</u>"
+    
+    # Empfänger-Adressblock
+    clean_addr = address_line.replace("<br/>", "\n").replace("<br>", "\n")
+    addr_lines = [line.strip() for line in clean_addr.split("\n") if line.strip()]
+    if not addr_lines:
+        addr_lines = ["Musterstraße 1", "10115 Berlin"]
+    
+    recipient_html = f"<b>{recipient_name}</b><br/>" + "<br/>".join(addr_lines)
 
-    # 2. Empfängerfeld
-    addr_block = f"<b>{recipient_name}</b><br/>"
-    if address_line:
-        addr_block += f"{address_line}<br/>"
-    else:
-        addr_block += "Musterstraße 1<br/>10115 Berlin"
-    elements.append(Paragraph(addr_block, style_normal))
-    elements.append(Spacer(1, 1.2 * cm))
+    left_cell_elements = [
+        Paragraph(sender_return_line, style_sender_return),
+        Spacer(1, 0.4 * cm),
+        Paragraph(recipient_html, style_recipient)
+    ]
 
-    # 3. Datum
     date_display = datetime.now().strftime("%d.%m.%Y")
-    elements.append(Paragraph(f"<para align='right'>{date_display}</para>", style_normal))
-    elements.append(Spacer(1, 0.5 * cm))
+    right_cell_html = (
+        f"<b>{sender_name}</b><br/>"
+        f"{property_name}<br/>"
+        f"{sender_street}<br/>"
+        f"{sender_city}<br/>"
+        f"Tel.: {sender_phone}<br/>"
+        f"E-Mail: {sender_email}<br/><br/>"
+        f"Datum: {date_display}"
+    )
+    right_cell_elements = [
+        Paragraph(right_cell_html, style_info_block)
+    ]
 
-    # 4. Betreff
-    elements.append(Paragraph(f"<b>{subject}</b>", style_title))
-    elements.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#e2e8f0"), spaceAfter=15, spaceBefore=8))
+    # Tabelle: Links genau 8.5 cm (DIN Fenster), Rechts 8.0 cm -> Gesamtbreite 16.5 cm
+    header_table = Table([[left_cell_elements, right_cell_elements]], colWidths=[8.5 * cm, 8.0 * cm])
+    header_table.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 0),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+        ('TOPPADDING', (0, 0), (-1, -1), 0),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+    ]))
+    elements.append(header_table)
 
-    # 5. Brieftext (Absätze trennen)
-    paragraphs = [p.strip() for p in letter_text.split("\n\n") if p.strip()]
+    # 2. Betreff beginnt zwei Zeilen unter dem Datum (ca. 24 pt)
+    elements.append(Spacer(1, 24 * pt))
+    elements.append(Paragraph(f"<b>{clean_subject}</b>", style_subject))
+
+    # 3. Fließtext beginnt zwei Zeilen unter dem Betreff (ca. 24 pt)
+    elements.append(Spacer(1, 24 * pt))
+
+    # Absätze des Fließtexts (gegliedert durch jeweils 1 Leerzeile, kein Erstzeileneinzug)
+    paragraphs = [p.strip() for p in clean_text.split("\n\n") if p.strip()]
     if not paragraphs:
-        paragraphs = [letter_text]
+        paragraphs = [clean_text]
 
     for p in paragraphs:
         formatted_p = p.replace("\n", "<br/>")
-        elements.append(Paragraph(formatted_p, style_normal))
-        elements.append(Spacer(1, 0.35 * cm))
+        elements.append(Paragraph(formatted_p, style_body))
 
-    elements.append(Spacer(1, 0.8 * cm))
-    elements.append(Paragraph(f"Mit freundlichen Grüßen,<br/><br/><b>{sender_name}</b>", style_normal))
+    # 4. Grußformel: nach einer Leerzeile, OHNE Komma, danach 3 Leerzeilen für Unterschrift
+    closing_elements = [
+        Spacer(1, 11 * pt),
+        Paragraph("Mit freundlichen Grüßen", style_body),
+        Spacer(1, 33 * pt),  # 3 Leerzeilen für handschriftliche Unterschrift
+        Paragraph(f"<b>{sender_name}</b>", style_body)
+    ]
+    elements.append(KeepTogether(closing_elements))
 
     doc.build(elements)
     return pdf_path

@@ -92,7 +92,9 @@ KONTEXT DES MIETERS:
 WICHTIGE REGELN:
 1. Schreibe AUSSCHLIESSLICH in fehlerfreiem Deutsch.
 2. Der Brief MUSS mit der exakten Anredezeile beginnen: '{formal_greeting},' (niemals 'Sehr geehrte(r) Frau/Herr'!).
-3. Formuliere einen präzisen, juristisch sauberen Betreff ('subject') passend zum konkreten Anliegen. Beispiele:
+3. Formuliere einen präzisen, juristisch sauberen Betreff ('subject') passend zum konkreten Anliegen.
+   WICHTIG nach DIN 5008: Das Wort 'Betreff' oder 'Betreff:' darf NIEMALS vorangestellt werden (direkt mit dem Thema beginnen)!
+   Beispiele:
    - Bei Nebenkostensenkung: "Anpassung der monatlichen Betriebskostenvorauszahlung gemäß § 560 Abs. 4 BGB"
    - Bei Nebenkostenerhöhung: "Anpassung der monatlichen Betriebskostenvorauszahlung gemäß § 560 Abs. 4 BGB"
    - Bei Mieterhöhung (Kaltmiete): "Mieterhöhungsverlangen gemäß § 558 BGB zur Anpassung an die ortsübliche Vergleichsmiete"
@@ -108,7 +110,8 @@ WICHTIGE REGELN:
    - Die Anredezeile '{formal_greeting},'
    - Klare Darlegung des Sachverhalts und der Begründung mit konkreten Beträgen und Fristen.
    - Angabe der neuen Beträge (Kaltmiete bzw. Vorauszahlung).
-   - Höfliche Schluss- und Grußformel.
+   - Höflichen Schlusssatz.
+   - WICHTIG nach DIN 5008: Falls eine Grußformel enthalten ist, lautet sie stets 'Mit freundlichen Grüßen' OHNE Komma am Ende.
 7. Antworte AUSSCHLIESSLICH im gültigen JSON-Format mit den Schlüsseln "subject" und "body".
 """
 
@@ -420,12 +423,18 @@ def handle_agent_request(user_prompt: str, model: str = "llama3") -> Dict[str, A
             unit_info = f"{db_tenant['unit_number']} ({db_tenant['property_name']})"
             addr_line = f"{db_tenant.get('street', 'Lindenstraße 14')}\n{db_tenant.get('zip_code', '10115')} {db_tenant.get('city', 'Berlin')}"
             prop_name = db_tenant.get("property_name", "Wohnanlage Sonnenhang")
+            sender_street = db_tenant.get("street", "Lindenstraße 14")
+            sender_city = f"{db_tenant.get('zip_code', '10115')} {db_tenant.get('city', 'Berlin')}"
             note = f"👤 *Mieter aus deiner Datenbank zugeordnet: {full_name} ({unit_info})*"
         else:
             full_name = raw_name
             addr_line = "Musterstraße 1\n10115 Berlin"
-            prop_name = "Immobilienverwaltung"
+            prop_name = "Wohnanlage Sonnenhang"
+            sender_street = "Lindenstraße 14"
+            sender_city = "10115 Berlin"
             note = f"💡 *Hinweis: '{raw_name}' ist bisher nicht in deiner Mieter-Datenbank hinterlegt. Das Schreiben wurde mit Vorlagendaten für diesen Namen erstellt.*"
+
+        sender_name = "Hausverwaltung Sonnenhang"
 
         # Brief mit KI entwerfen
         letter_content = draft_letter_with_ai(
@@ -437,34 +446,43 @@ def handle_agent_request(user_prompt: str, model: str = "llama3") -> Dict[str, A
         subject = letter_content.get("subject", "Mitteilung der Hausverwaltung")
         letter_text = letter_content.get("body", "")
 
-        # 1. PDF generieren
+        # 1. PDF nach DIN 5008:2020 Form B generieren
         pdf_path = generate_formal_letter_pdf(
             recipient_name=full_name,
             subject=subject,
             letter_text=letter_text,
             address_line=addr_line,
-            sender_name="Hausverwaltung",
-            property_name=prop_name
+            sender_name=sender_name,
+            property_name=prop_name,
+            sender_street=sender_street,
+            sender_city=sender_city
         )
 
-        # 2. Word / DOCX (auch für LibreOffice ODT) generieren
+        # 2. Word / DOCX (auch für LibreOffice ODT) nach DIN 5008:2020 Form B generieren
         docx_path = generate_formal_letter_docx(
             recipient_name=full_name,
             subject=subject,
             letter_text=letter_text,
             address_line=addr_line,
-            sender_name="Hausverwaltung",
-            property_name=prop_name
+            sender_name=sender_name,
+            property_name=prop_name,
+            sender_street=sender_street,
+            sender_city=sender_city
         )
 
+        clean_subj = re.sub(r"^(?:Betreff|Subject)\s*:\s*", "", subject, flags=re.IGNORECASE).strip()
+        clean_body = re.sub(r"\n*(?:Mit freundlichen Grüßen|Freundliche Grüße|Herzliche Grüße)[,\s]*.*$", "", letter_text, flags=re.IGNORECASE | re.DOTALL).strip()
+
         msg = (
-            f"📄 **Offizielles Schreiben für {full_name} erstellt!**\n\n"
+            f"📄 **Offizielles Schreiben für {full_name} erstellt! (DIN 5008 Form B)**\n\n"
             f"{note}\n\n"
-            f"**Betreff:** {subject}\n\n"
+            f"**{clean_subj}**\n\n"
             f"---\n\n"
-            f"{letter_text}\n\n"
+            f"{clean_body}\n\n"
+            f"Mit freundlichen Grüßen\n\n\n"
+            f"**{sender_name}**\n\n"
             f"---\n\n"
-            f"📥 *Das Schreiben wurde sowohl als **PDF** als auch als editierbares **Word / DOCX (für LibreOffice / Word)** generiert.*"
+            f"📥 *Das Dokument wurde nach der offiziellen **DIN 5008:2020 (Form B)** als druckfertiges **PDF** und editierbares **Word / DOCX** (kompatibel mit MS Word & LibreOffice) generiert.*"
         )
 
         return {
