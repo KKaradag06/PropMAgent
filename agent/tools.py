@@ -170,6 +170,125 @@ def get_expenses_summary(year: int) -> List[Dict[str, Any]]:
     """
     return query_db(sql, (year,))
 
+def get_available_expense_years() -> List[int]:
+    """Gibt alle in der Datenbank vorhandenen Abrechnungsjahre sortiert zurück (mindestens 2026 und 2025)."""
+    rows = query_db("SELECT DISTINCT year FROM expenses ORDER BY year DESC;")
+    years = [int(r["year"]) for r in rows if r.get("year")]
+    for def_yr in [2026, 2025]:
+        if def_yr not in years:
+            years.append(def_yr)
+    years.sort(reverse=True)
+    return years
+
+def get_expenses_for_year(year: int) -> List[Dict[str, Any]]:
+    """Gibt alle detaillierten Betriebskosten inkl. ID für ein bestimmtes Jahr zurück."""
+    sql = """
+        SELECT e.id, e.property_id, e.year, e.category, e.description, e.amount, 
+               e.allocation_key, e.receipt_date, p.name as property_name
+        FROM expenses e
+        JOIN properties p ON e.property_id = p.id
+        WHERE e.year = ?
+        ORDER BY e.category ASC, e.id ASC;
+    """
+    return query_db(sql, (year,))
+
+def add_expense(
+    property_id: int,
+    year: int,
+    category: str,
+    amount: float,
+    allocation_key: str = "sqm",
+    description: str = "",
+    receipt_date: Optional[str] = None
+) -> int:
+    """Fügt eine neue Betriebskostenposition ein."""
+    from database.db import execute_db
+    if not category.strip():
+        raise ValueError("Kostenart darf nicht leer sein.")
+    new_id = execute_db("""
+        INSERT INTO expenses (property_id, year, category, description, amount, allocation_key, receipt_date)
+        VALUES (?, ?, ?, ?, ?, ?, ?);
+    """, (property_id, int(year), category.strip(), description.strip(), float(amount), allocation_key, receipt_date))
+    return new_id
+
+def update_expense(
+    expense_id: int,
+    category: str,
+    amount: float,
+    allocation_key: str = "sqm",
+    description: str = "",
+    receipt_date: Optional[str] = None
+) -> bool:
+    """Aktualisiert eine bestehende Betriebskostenposition."""
+    from database.db import execute_db
+    if not category.strip():
+        raise ValueError("Kostenart darf nicht leer sein.")
+    execute_db("""
+        UPDATE expenses
+        SET category = ?,
+            description = ?,
+            amount = ?,
+            allocation_key = ?,
+            receipt_date = ?
+        WHERE id = ?;
+    """, (category.strip(), description.strip(), float(amount), allocation_key, receipt_date, expense_id))
+    return True
+
+def delete_expense(expense_id: int) -> bool:
+    """Löscht eine Betriebskostenposition anhand ihrer ID."""
+    from database.db import execute_db
+    execute_db("DELETE FROM expenses WHERE id = ?;", (expense_id,))
+    return True
+
+def copy_expenses_from_year(source_year: int, target_year: int, property_id: Optional[int] = None) -> int:
+    """Kopiert alle Kostenpositionen eines Quelljahres in ein Zieljahr als Basis/Vorlage."""
+    from database.db import execute_db
+    if property_id:
+        source_expenses = query_db("SELECT * FROM expenses WHERE year = ? AND property_id = ?;", (source_year, property_id))
+    else:
+        source_expenses = query_db("SELECT * FROM expenses WHERE year = ?;", (source_year,))
+    
+    count = 0
+    for exp in source_expenses:
+        r_date = exp.get("receipt_date")
+        if r_date and len(str(r_date)) >= 4:
+            new_date = f"{target_year}{str(r_date)[4:]}"
+        else:
+            new_date = f"{target_year}-01-01"
+            
+        execute_db("""
+            INSERT INTO expenses (property_id, year, category, description, amount, allocation_key, receipt_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?);
+        """, (exp["property_id"], target_year, exp["category"], exp["description"], exp["amount"], exp["allocation_key"], new_date))
+        count += 1
+    return count
+
+def get_annual_utility_statements(year: int) -> List[Dict[str, Any]]:
+    """Erstellt eine tabellarische Übersicht aller Mieterabrechnungen für ein bestimmtes Jahr."""
+    tenants = get_all_tenants()
+    statements = []
+    for t in tenants:
+        try:
+            bill = calculate_utility_bill(t["tenant_id"], year)
+            statements.append({
+                "tenant_id": t["tenant_id"],
+                "salutation": t.get("salutation", "Herr"),
+                "first_name": t["first_name"],
+                "last_name": t["last_name"],
+                "full_name": f"{t.get('salutation', 'Herr')} {t['first_name']} {t['last_name']}",
+                "unit_number": t.get("unit_number", ""),
+                "area_sqm": float(t.get("area_sqm") or 0.0),
+                "total_property_expenses": bill["total_property_expenses"],
+                "tenant_share": bill["total_tenant_share"],
+                "prepayments_paid": bill["prepayments_paid"],
+                "balance": bill["balance"],
+                "is_refund": bill["is_refund"],
+                "status_label": "Guthaben" if bill["is_refund"] else ("Ausgeglichen" if bill["balance"] == 0 else "Nachzahlung")
+            })
+        except Exception:
+            continue
+    return statements
+
 def create_utility_statement_for_tenant(tenant_id: int, year: int, intro_text: str = "") -> Dict[str, Any]:
     """Berechnet die Abrechnung und erzeugt das fertige PDF."""
     bill_data = calculate_utility_bill(tenant_id, year)

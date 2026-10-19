@@ -100,6 +100,23 @@ def seed():
             VALUES (?, ?, ?, ?);
         """, (t3_id, f"2025-{m_str}-03", 180.00, "utility_advance"))
 
+    # 6. Betriebskosten für das Abrechnungsjahr 2026 (laufendes Jahr)
+    expenses_2026 = [
+        ("Grundsteuer", "Grundsteuer B Stadt Berlin", 1200.00, "sqm", "2026-02-15"),
+        ("Gebäudeversicherung", "Allianz Wohngebäude & Haftpflicht", 1520.00, "sqm", "2026-03-01"),
+        ("Müllabfuhr", "BSR Abfallbeseitigung", 1020.00, "sqm", "2026-06-30"),
+        ("Allgemeinstrom", "Vattenfall Treppenhausbeleuchtung", 380.00, "sqm", "2026-10-10"),
+        ("Schornsteinfeger / Wartung", "Messung & Wartung Heizungsanlage", 260.00, "sqm", "2026-10-12"),
+        ("Hausmeister / Gartenpflege", "Grünanlagenpflege und Treppenhausreinigung", 1150.00, "sqm", "2026-11-20"),
+        ("Wasser / Abwasser", "Berliner Wasserbetriebe Frisch- und Abwasser", 850.00, "sqm", "2026-12-05"),
+        ("Kabelanschluss / TV", "Breitbandkabelanschluss Pauschale", 480.00, "units", "2026-12-01"),
+    ]
+    for cat, desc, amount, key, r_date in expenses_2026:
+        execute_db("""
+            INSERT INTO expenses (property_id, year, category, description, amount, allocation_key, receipt_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?);
+        """, (prop_id, 2026, cat, desc, amount, key, r_date))
+
     print("Erfolgreich Beispieldaten für 'Wohnanlage Sonnenhang' eingefügt!")
 
 if __name__ == "__main__":

@@ -87,6 +87,10 @@ def calculate_utility_bill(tenant_id: int, year: int) -> Dict[str, Any]:
     payments_res = query_db(payments_query, (tenant_id, str(year)))
     prepayments = float(payments_res[0]["paid_sum"] or 0.0)
 
+    # Fallback auf vertragliche Jahresvorauszahlung, falls keine Einzelbuchungen erfasst wurden
+    if prepayments == 0.0 and tenant_info.get("utility_advance"):
+        prepayments = round(float(tenant_info["utility_advance"]) * 12.0, 2)
+
     # 4. Differenz (Nachzahlung > 0 / Guthaben < 0)
     balance = round(total_tenant_share - prepayments, 2)
 
