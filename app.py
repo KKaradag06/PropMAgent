@@ -62,29 +62,234 @@ with st.sidebar:
     model_name = st.selectbox("Ollama Modell", ["llama3", "mistral", "llama3.1"], index=0)
     st.info("🔒 **100% Lokal:** Alle Daten und KI-Anfragen laufen vollständig auf deinem PC.")
 
-# TAB 1: Chat & Nebenkosten-Erstellung
 if menu == "💬 KI-Assistent & Abrechnung":
-    st.header("💬 Intelligenter Verwaltungsassistent")
+    st.header("Intelligenter Verwaltungsassistent")
     st.write("Erstelle Nebenkostenabrechnungen, stelle Fragen zu Mietern oder lass dir Auswertungen anzeigen.")
 
-    # Schnellaktionen
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        if st.button("📄 Abrechnung Schmidt 2025 erstellen", use_container_width=True):
-            st.session_state.quick_prompt = "Erstelle die Nebenkostenabrechnung 2025 für Mieter Schmidt"
-    with col2:
-        if st.button("📄 Abrechnung Mustermann 2025 erstellen", use_container_width=True):
-            st.session_state.quick_prompt = "Erstelle die Nebenkostenabrechnung 2025 für Mieter Mustermann"
-    with col3:
-        if st.button("📋 Alle aktuellen Mieter auflisten", use_container_width=True):
-            st.session_state.quick_prompt = "Welche Mieter wohnen aktuell im Objekt?"
+    tenants = get_all_tenants()
+    tenant_options = {
+        f"{t.get('salutation', 'Herr')} {t['first_name']} {t['last_name']} ({t.get('unit_number', '')})": f"{t['first_name']} {t['last_name']}"
+        for t in tenants
+    } if tenants else {"(Keine Mieter in Datenbank erfasst)": ""}
+
+    # Strukturierte Vorlagen & Schnellaktionen
+    with st.container(border=True):
+        st.markdown("**Vorlagen & Schnellaktionen**")
+        category = st.segmented_control(
+            "Bereich",
+            options=["Miete", "Nebenkosten", "Andere"],
+            default="Miete",
+            key="action_category_selector",
+            label_visibility="collapsed"
+        )
+
+        if category == "Miete":
+            sub_action = st.pills(
+                "Miet-Aktionen",
+                options=["Mietanpassung", "Zahlungserinnerung", "Mietbescheinigung", "Abmahnung Zahlungsverzug"],
+                default="Mietanpassung",
+                key="sub_action_miete",
+                label_visibility="collapsed"
+            )
+
+            if sub_action == "Mietanpassung":
+                c_t, c_inp, c_btn = st.columns([2.5, 2.5, 1.5])
+                with c_t:
+                    sel_t_lbl = st.selectbox("Mieter auswählen", list(tenant_options.keys()), key="act_t_sel_ma")
+                    tgt_t = tenant_options.get(sel_t_lbl, "")
+                with c_inp:
+                    adj_val = st.text_input("Anpassung (z. B. 15% oder 50 €)", value="15%", key="act_adj_ma")
+                with c_btn:
+                    st.write("")
+                    st.write("")
+                    if st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_ma"):
+                        if tgt_t:
+                            st.session_state.quick_prompt = f"Schreibe eine Mieterhöhung an {tgt_t} um {adj_val.strip()} zum rechtlich nächstmöglichen Zeitpunkt"
+                            st.rerun()
+
+            elif sub_action == "Zahlungserinnerung":
+                c_t, c_amt, c_due, c_btn = st.columns([2, 1.5, 1.5, 1.5])
+                with c_t:
+                    sel_t_lbl = st.selectbox("Mieter auswählen", list(tenant_options.keys()), key="act_t_sel_ze")
+                    tgt_t = tenant_options.get(sel_t_lbl, "")
+                with c_amt:
+                    debt_amt = st.text_input("Rückstand (€)", placeholder="z. B. 950 €", key="act_debt_amt")
+                with c_due:
+                    due_date = st.text_input("Zahlungsfrist", placeholder="z. B. 7 Tage", key="act_due_date")
+                with c_btn:
+                    st.write("")
+                    st.write("")
+                    if st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_ze"):
+                        if tgt_t:
+                            amt_txt = f"über {debt_amt.strip()}" if debt_amt.strip() else ""
+                            due_txt = f"mit Frist {due_date.strip()}" if due_date.strip() else ""
+                            st.session_state.quick_prompt = f"Schreibe eine Zahlungserinnerung an {tgt_t} {amt_txt} {due_txt}".strip()
+                            st.rerun()
+
+            elif sub_action == "Mietbescheinigung":
+                c_t, c_btn = st.columns([3.5, 1.5])
+                with c_t:
+                    sel_t_lbl = st.selectbox("Mieter auswählen", list(tenant_options.keys()), key="act_t_sel_mb")
+                    tgt_t = tenant_options.get(sel_t_lbl, "")
+                with c_btn:
+                    st.write("")
+                    st.write("")
+                    if st.button("Bescheinigung erstellen", type="primary", use_container_width=True, key="btn_mb"):
+                        if tgt_t:
+                            st.session_state.quick_prompt = f"Erstelle eine Mietbescheinigung für {tgt_t}"
+                            st.rerun()
+
+            elif sub_action == "Abmahnung Zahlungsverzug":
+                c_t, c_reason, c_btn = st.columns([2.5, 2.5, 1.5])
+                with c_t:
+                    sel_t_lbl = st.selectbox("Mieter auswählen", list(tenant_options.keys()), key="act_t_sel_az")
+                    tgt_t = tenant_options.get(sel_t_lbl, "")
+                with c_reason:
+                    reason_txt = st.text_input("Rückstand / Details", placeholder="z. B. Miete für September und Oktober 2026", key="act_az_reason")
+                with c_btn:
+                    st.write("")
+                    st.write("")
+                    if st.button("Abmahnung erstellen", type="primary", use_container_width=True, key="btn_az"):
+                        if tgt_t:
+                            detail = f": {reason_txt.strip()}" if reason_txt.strip() else ""
+                            st.session_state.quick_prompt = f"Schreibe eine formelle Abmahnung an {tgt_t} wegen Zahlungsverzugs{detail}"
+                            st.rerun()
+
+        elif category == "Nebenkosten":
+            sub_action = st.pills(
+                "Nebenkosten-Aktionen",
+                options=["Nebenkostenabrechnung", "Nebenkostensenkung", "Nebenkostenerhöhung", "Kostenübersicht"],
+                default="Nebenkostenabrechnung",
+                key="sub_action_nk",
+                label_visibility="collapsed"
+            )
+
+            if sub_action == "Nebenkostenabrechnung":
+                c_t, c_yr, c_btn = st.columns([2.5, 2.5, 1.5])
+                with c_t:
+                    sel_t_lbl = st.selectbox("Mieter auswählen", list(tenant_options.keys()), key="act_t_sel_nka")
+                    tgt_t = tenant_options.get(sel_t_lbl, "")
+                with c_yr:
+                    yr_val = st.number_input("Abrechnungsjahr", min_value=2020, max_value=2030, value=2025, step=1, key="act_yr_nka")
+                with c_btn:
+                    st.write("")
+                    st.write("")
+                    if st.button("Abrechnung generieren", type="primary", use_container_width=True, key="btn_nka"):
+                        if tgt_t:
+                            st.session_state.quick_prompt = f"Erstelle die Nebenkostenabrechnung {int(yr_val)} für {tgt_t}"
+                            st.rerun()
+
+            elif sub_action == "Nebenkostensenkung":
+                c_t, c_inp, c_btn = st.columns([2.5, 2.5, 1.5])
+                with c_t:
+                    sel_t_lbl = st.selectbox("Mieter auswählen", list(tenant_options.keys()), key="act_t_sel_nks")
+                    tgt_t = tenant_options.get(sel_t_lbl, "")
+                with c_inp:
+                    adj_val = st.text_input("Senkungsbetrag (z. B. 20 € oder 10%)", value="20 €", key="act_adj_nks")
+                with c_btn:
+                    st.write("")
+                    st.write("")
+                    if st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_nks"):
+                        if tgt_t:
+                            st.session_state.quick_prompt = f"Schreibe einen Brief an {tgt_t} wegen Nebenkostensenkung um {adj_val.strip()} zum rechtlich nächstmöglichen Zeitpunkt"
+                            st.rerun()
+
+            elif sub_action == "Nebenkostenerhöhung":
+                c_t, c_inp, c_btn = st.columns([2.5, 2.5, 1.5])
+                with c_t:
+                    sel_t_lbl = st.selectbox("Mieter auswählen", list(tenant_options.keys()), key="act_t_sel_nke")
+                    tgt_t = tenant_options.get(sel_t_lbl, "")
+                with c_inp:
+                    adj_val = st.text_input("Erhöhungsbetrag (z. B. 30 € oder 15%)", value="30 €", key="act_adj_nke")
+                with c_btn:
+                    st.write("")
+                    st.write("")
+                    if st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_nke"):
+                        if tgt_t:
+                            st.session_state.quick_prompt = f"Schreibe einen Brief an {tgt_t} wegen Nebenkostenerhöhung um {adj_val.strip()} zum rechtlich nächstmöglichen Zeitpunkt"
+                            st.rerun()
+
+            elif sub_action == "Kostenübersicht":
+                c_yr, c_btn = st.columns([3.5, 1.5])
+                with c_yr:
+                    yr_val = st.number_input("Abrechnungsjahr", min_value=2020, max_value=2030, value=2025, step=1, key="act_yr_ko")
+                with c_btn:
+                    st.write("")
+                    st.write("")
+                    if st.button("Kosten anzeigen", type="primary", use_container_width=True, key="btn_ko"):
+                        st.session_state.quick_prompt = f"Zeige alle Betriebskosten für das Abrechnungsjahr {int(yr_val)}"
+                        st.rerun()
+
+        elif category == "Andere":
+            sub_action = st.pills(
+                "Weitere Aktionen",
+                options=["Handwerker / Wartung", "Bankverbindung mitteilen", "Abmahnung Hausordnung", "Mieterübersicht"],
+                default="Handwerker / Wartung",
+                key="sub_action_andere",
+                label_visibility="collapsed"
+            )
+
+            if sub_action == "Handwerker / Wartung":
+                c_t, c_inp, c_btn = st.columns([2.5, 2.5, 1.5])
+                with c_t:
+                    sel_t_lbl = st.selectbox("Mieter auswählen", list(tenant_options.keys()), key="act_t_sel_hw")
+                    tgt_t = tenant_options.get(sel_t_lbl, "")
+                with c_inp:
+                    work_txt = st.text_input("Grund & Termin", placeholder="z. B. Heizungswartung am 15.11. von 9-12 Uhr", key="act_hw_work")
+                with c_btn:
+                    st.write("")
+                    st.write("")
+                    if st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_hw"):
+                        if tgt_t:
+                            st.session_state.quick_prompt = f"Schreibe ein Ankündigungsschreiben an {tgt_t} bezüglich Handwerkerarbeiten: {work_txt.strip()}"
+                            st.rerun()
+
+            elif sub_action == "Bankverbindung mitteilen":
+                c_t, c_inp, c_btn = st.columns([2.5, 2.5, 1.5])
+                with c_t:
+                    sel_t_lbl = st.selectbox("Mieter auswählen", list(tenant_options.keys()), key="act_t_sel_bv")
+                    tgt_t = tenant_options.get(sel_t_lbl, "")
+                with c_inp:
+                    bank_txt = st.text_input("Hinweis / Bankdaten (optional)", placeholder="z. B. Neues Mietkonto ab dem 01.11.2026", key="act_bv_hint")
+                with c_btn:
+                    st.write("")
+                    st.write("")
+                    if st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_bv"):
+                        if tgt_t:
+                            detail = f": {bank_txt.strip()}" if bank_txt.strip() else ""
+                            st.session_state.quick_prompt = f"Schreibe eine Mitteilung an {tgt_t} über die Aktualisierung der Bankverbindung für Mietzahlungen{detail}"
+                            st.rerun()
+
+            elif sub_action == "Abmahnung Hausordnung":
+                c_t, c_inp, c_btn = st.columns([2.5, 2.5, 1.5])
+                with c_t:
+                    sel_t_lbl = st.selectbox("Mieter auswählen", list(tenant_options.keys()), key="act_t_sel_ah")
+                    tgt_t = tenant_options.get(sel_t_lbl, "")
+                with c_inp:
+                    incident_txt = st.text_input("Pflichtverletzung", placeholder="z. B. wiederholte Ruhestörung nach 22:00 Uhr", key="act_ah_incident")
+                with c_btn:
+                    st.write("")
+                    st.write("")
+                    if st.button("Abmahnung erstellen", type="primary", use_container_width=True, key="btn_ah"):
+                        if tgt_t:
+                            st.session_state.quick_prompt = f"Schreibe eine formelle Abmahnung an {tgt_t} wegen vertragswidrigen Verhaltens: {incident_txt.strip()}"
+                            st.rerun()
+
+            elif sub_action == "Mieterübersicht":
+                c_txt, c_btn = st.columns([3.5, 1.5])
+                with c_txt:
+                    st.write("Ruft die vollständige Übersicht aller aktuell aktiven Mieter ab.")
+                with c_btn:
+                    if st.button("Mieterliste anzeigen", type="primary", use_container_width=True, key="btn_ml"):
+                        st.session_state.quick_prompt = "Welche Mieter wohnen aktuell im Objekt?"
+                        st.rerun()
 
     # Chat-Historie im Session-State
     if "messages" not in st.session_state:
         st.session_state.messages = [
             {
                 "role": "assistant",
-                "content": "Hallo! Ich bin dein lokaler PropMAgent. Wie kann ich dich heute unterstützen? Du kannst mich z. B. bitten: *'Erstelle die Nebenkostenabrechnung 2025 für Mieter Schmidt'*."
+                "content": "Wie kann ich Ihnen helfen?"
             }
         ]
 
@@ -101,7 +306,7 @@ if menu == "💬 KI-Assistent & Abrechnung":
                         with open(msg["pdf_path"], "rb") as f:
                             pdf_bytes = f.read()
                         st.download_button(
-                            label="📥 PDF herunterladen",
+                            label="PDF herunterladen (DIN 5008)",
                             data=pdf_bytes,
                             file_name=os.path.basename(msg["pdf_path"]),
                             mime="application/pdf",
@@ -112,7 +317,7 @@ if menu == "💬 KI-Assistent & Abrechnung":
                         with open(msg["docx_path"], "rb") as f:
                             docx_bytes = f.read()
                         st.download_button(
-                            label="📝 Word/ODT (DOCX) herunterladen",
+                            label="Word / DOCX herunterladen",
                             data=docx_bytes,
                             file_name=os.path.basename(msg["docx_path"]),
                             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -149,7 +354,7 @@ if menu == "💬 KI-Assistent & Abrechnung":
                             with open(response["pdf_path"], "rb") as f:
                                 pdf_bytes = f.read()
                             st.download_button(
-                                label="📥 PDF herunterladen",
+                                label="PDF herunterladen (DIN 5008)",
                                 data=pdf_bytes,
                                 file_name=os.path.basename(response["pdf_path"]),
                                 mime="application/pdf",
@@ -161,7 +366,7 @@ if menu == "💬 KI-Assistent & Abrechnung":
                             with open(response["docx_path"], "rb") as f:
                                 docx_bytes = f.read()
                             st.download_button(
-                                label="📝 Word/ODT (DOCX) herunterladen",
+                                label="Word / DOCX herunterladen",
                                 data=docx_bytes,
                                 file_name=os.path.basename(response["docx_path"]),
                                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
