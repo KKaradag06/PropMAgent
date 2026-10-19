@@ -93,10 +93,12 @@ if menu == "💬 KI-Assistent & Abrechnung":
             )
 
             if sub_action == "Mietanpassung":
-                c_t, c_inp, c_btn = st.columns([2.5, 2.5, 1.5])
+                c_t, c_mode, c_inp, c_btn = st.columns([2.5, 1.8, 2.2, 1.5])
                 with c_t:
                     sel_t_lbl = st.selectbox("Mieter auswählen", list(tenant_options.keys()), key="act_t_sel_ma")
                     tgt_t = tenant_options.get(sel_t_lbl, "")
+                with c_mode:
+                    adj_mode = st.segmented_control("Art", options=["Erhöhung", "Senkung"], default="Erhöhung", key="act_mode_ma")
                 with c_inp:
                     adj_val = st.text_input("Anpassung (z. B. 15% oder 50 €)", value="15%", key="act_adj_ma")
                 with c_btn:
@@ -104,7 +106,8 @@ if menu == "💬 KI-Assistent & Abrechnung":
                     st.write("")
                     if st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_ma"):
                         if tgt_t:
-                            st.session_state.quick_prompt = f"Schreibe eine Mieterhöhung an {tgt_t} um {adj_val.strip()} zum rechtlich nächstmöglichen Zeitpunkt"
+                            action_word = "Mieterhöhung" if adj_mode == "Erhöhung" else "Mietsenkung"
+                            st.session_state.quick_prompt = f"Schreibe eine {action_word} an {tgt_t} um {adj_val.strip()} zum rechtlich nächstmöglichen Zeitpunkt"
                             st.rerun()
 
             elif sub_action == "Zahlungserinnerung":
@@ -158,55 +161,43 @@ if menu == "💬 KI-Assistent & Abrechnung":
         elif category == "Nebenkosten":
             sub_action = st.pills(
                 "Nebenkosten-Aktionen",
-                options=["Nebenkostenabrechnung", "Nebenkostensenkung", "Nebenkostenerhöhung", "Kostenübersicht"],
-                default="Nebenkostenabrechnung",
+                options=["Nebenkostenanpassung", "Nebenkostenabrechnung", "Kostenübersicht"],
+                default="Nebenkostenanpassung",
                 key="sub_action_nk",
                 label_visibility="collapsed"
             )
 
-            if sub_action == "Nebenkostenabrechnung":
-                c_t, c_yr, c_btn = st.columns([2.5, 2.5, 1.5])
+            if sub_action == "Nebenkostenanpassung":
+                c_t, c_mode, c_inp, c_btn = st.columns([2.5, 1.8, 2.2, 1.5])
                 with c_t:
                     sel_t_lbl = st.selectbox("Mieter auswählen", list(tenant_options.keys()), key="act_t_sel_nka")
+                    tgt_t = tenant_options.get(sel_t_lbl, "")
+                with c_mode:
+                    adj_mode = st.segmented_control("Art", options=["Erhöhung", "Senkung"], default="Senkung", key="act_mode_nka")
+                with c_inp:
+                    adj_val = st.text_input("Anpassung (z. B. 20 € oder 10%)", value="20 €", key="act_adj_nka")
+                with c_btn:
+                    st.write("")
+                    st.write("")
+                    if st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_nka"):
+                        if tgt_t:
+                            action_word = "Nebenkostenerhöhung" if adj_mode == "Erhöhung" else "Nebenkostensenkung"
+                            st.session_state.quick_prompt = f"Schreibe einen Brief an {tgt_t} wegen {action_word} um {adj_val.strip()} zum rechtlich nächstmöglichen Zeitpunkt"
+                            st.rerun()
+
+            elif sub_action == "Nebenkostenabrechnung":
+                c_t, c_yr, c_btn = st.columns([2.5, 2.5, 1.5])
+                with c_t:
+                    sel_t_lbl = st.selectbox("Mieter auswählen", list(tenant_options.keys()), key="act_t_sel_nka_bill")
                     tgt_t = tenant_options.get(sel_t_lbl, "")
                 with c_yr:
                     yr_val = st.number_input("Abrechnungsjahr", min_value=2020, max_value=2030, value=2025, step=1, key="act_yr_nka")
                 with c_btn:
                     st.write("")
                     st.write("")
-                    if st.button("Abrechnung generieren", type="primary", use_container_width=True, key="btn_nka"):
+                    if st.button("Abrechnung generieren", type="primary", use_container_width=True, key="btn_nka_bill"):
                         if tgt_t:
                             st.session_state.quick_prompt = f"Erstelle die Nebenkostenabrechnung {int(yr_val)} für {tgt_t}"
-                            st.rerun()
-
-            elif sub_action == "Nebenkostensenkung":
-                c_t, c_inp, c_btn = st.columns([2.5, 2.5, 1.5])
-                with c_t:
-                    sel_t_lbl = st.selectbox("Mieter auswählen", list(tenant_options.keys()), key="act_t_sel_nks")
-                    tgt_t = tenant_options.get(sel_t_lbl, "")
-                with c_inp:
-                    adj_val = st.text_input("Senkungsbetrag (z. B. 20 € oder 10%)", value="20 €", key="act_adj_nks")
-                with c_btn:
-                    st.write("")
-                    st.write("")
-                    if st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_nks"):
-                        if tgt_t:
-                            st.session_state.quick_prompt = f"Schreibe einen Brief an {tgt_t} wegen Nebenkostensenkung um {adj_val.strip()} zum rechtlich nächstmöglichen Zeitpunkt"
-                            st.rerun()
-
-            elif sub_action == "Nebenkostenerhöhung":
-                c_t, c_inp, c_btn = st.columns([2.5, 2.5, 1.5])
-                with c_t:
-                    sel_t_lbl = st.selectbox("Mieter auswählen", list(tenant_options.keys()), key="act_t_sel_nke")
-                    tgt_t = tenant_options.get(sel_t_lbl, "")
-                with c_inp:
-                    adj_val = st.text_input("Erhöhungsbetrag (z. B. 30 € oder 15%)", value="30 €", key="act_adj_nke")
-                with c_btn:
-                    st.write("")
-                    st.write("")
-                    if st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_nke"):
-                        if tgt_t:
-                            st.session_state.quick_prompt = f"Schreibe einen Brief an {tgt_t} wegen Nebenkostenerhöhung um {adj_val.strip()} zum rechtlich nächstmöglichen Zeitpunkt"
                             st.rerun()
 
             elif sub_action == "Kostenübersicht":

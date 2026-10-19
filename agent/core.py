@@ -108,20 +108,25 @@ GESETZLICHE FRISTEN & DATEN (Stand: {now.strftime("%d.%m.%Y")}):
   * Wirksamkeit: ab dem {effective_nk_str} (auf die Erklärung folgender übernächster Monatserster)
 
 WICHTIGE REGELN:
-1. UNTERSCHEIDUNG MIETERHÖHUNG VS. NEBENKOSTEN:
-   - 'Mieterhöhung' oder 'Kaltmiete' betrifft AUSSCHLIESSLICH die Nettokaltmiete gemäß § 558 BGB. Erstelle hierbei NIEMALS ein Schreiben über Nebenkosten!
+1. UNTERSCHEIDUNG MIETANPASSUNG (ERHÖHUNG / SENKUNG) VS. NEBENKOSTEN:
+   - Bei Mieterhöhung: Mieterhöhungsverlangen gemäß § 558 BGB zur Erhöhung der Nettokaltmiete.
+   - Bei Mietsenkung / Mietherabsetzung: Mitteilung über die Herabsetzung der monatlichen Nettokaltmiete (die Kaltmiete wird um den angegebenen Betrag oder Prozentsatz reduziert).
    - Nebenkosten / Betriebskosten (§ 560 BGB) dürfen NUR angepasst werden, wenn der Nutzer explizit Nebenkosten oder Betriebskosten nennt.
-2. BERECHNUNG BEI PROZENTANGABEN (z. B. 15%):
-   - Wenn der Nutzer eine prozentuale Erhöhung verlangt (z. B. 15%), berechne den exakten Euro-Betrag:
+2. BERECHNUNG BEI PROZENTANGABEN (z. B. 10% oder 15%):
+   - Wenn der Nutzer eine prozentuale Erhöhung verlangt:
      Erhöhung in Euro = Aktuelle Kaltmiete * (Prozentsatz / 100)
      Neue Kaltmiete = Aktuelle Kaltmiete + Erhöhung in Euro
-     (Beispiel: Bei 500 € Kaltmiete und 15% Erhöhung beträgt die Erhöhung 75,00 € und die neue Miete 575,00 € - NIEMALS um 15 € erhöhen!).
+   - Wenn der Nutzer eine prozentuale Senkung verlangt:
+     Senkung in Euro = Aktuelle Kaltmiete * (Prozentsatz / 100)
+     Neue Kaltmiete = Aktuelle Kaltmiete - Senkung in Euro
+     (Beispiel: Bei 500 € Kaltmiete und 10% Senkung beträgt die Senkung 50,00 € und die neue Miete 450,00 €).
 3. Schreibe AUSSCHLIESSLICH in fehlerfreiem Deutsch.
 4. Der Brief MUSS mit der exakten Anredezeile beginnen: '{formal_greeting},' (niemals 'Sehr geehrte(r) Frau/Herr'!).
 5. Formuliere einen präzisen, juristisch sauberen Betreff ('subject') passend zum konkreten Anliegen.
    WICHTIG nach DIN 5008: Das Wort 'Betreff' oder 'Betreff:' darf NIEMALS vorangestellt werden (direkt mit dem Thema beginnen)!
    Beispiele:
    - Bei Kaltmieterhöhung: "Mieterhöhungsverlangen gemäß § 558 BGB zur Anpassung an die ortsübliche Vergleichsmiete"
+   - Bei Kaltmietsenkung: "Mitteilung über eine Herabsetzung der monatlichen Nettokaltmiete"
    - Bei Nebenkostensenkung: "Anpassung der monatlichen Betriebskostenvorauszahlung gemäß § 560 Abs. 4 BGB"
    - Bei Nebenkostenerhöhung: "Anpassung der monatlichen Betriebskostenvorauszahlung gemäß § 560 Abs. 4 BGB"
    - Bei Bankverbindung: "Mitteilung über eine Änderung der Bankverbindung für Mietzahlungen"
@@ -131,7 +136,7 @@ WICHTIGE REGELN:
 7. Der Brieftext ('body') muss enthalten:
    - Die Anredezeile '{formal_greeting},'
    - Klare Darlegung des Sachverhalts und der Begründung mit konkreten Beträgen und Fristen (unter Verwendung der oben angegebenen gesetzlichen Termine).
-   - Angabe der neuen Beträge (bisherige Miete, Erhöhungsbetrag, neue Miete, neue Gesamtmiete).
+   - Angabe der neuen Beträge (bisherige Miete, Anpassungsbetrag, neue Miete, neue Gesamtmiete).
    - Höflichen Schlusssatz.
    - WICHTIG nach DIN 5008: Falls eine Grußformel enthalten ist, lautet sie stets 'Mit freundlichen Grüßen' OHNE Komma am Ende.
 8. Antworte AUSSCHLIESSLICH im gültigen JSON-Format mit den Schlüsseln "subject" und "body".
@@ -206,15 +211,20 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
         or ("miete" in prompt_lower and any(w in prompt_lower for w in ["erhöh", "anheb"]) and not any(w in prompt_lower for w in ["nebenkosten", "betriebskosten"]))
     )
 
-    is_nk_senkung = any(w in prompt_lower for w in ["senk", "reduzier", "verringer", "nachlass"]) and (
+    is_mietsenkung = (
+        any(w in prompt_lower for w in ["mietsenkung", "miete senken", "kaltmiete senken", "senkung der miete", "senkung der kaltmiete"])
+        or (any(w in prompt_lower for w in ["senk", "reduzier"]) and ("kaltmiete" in prompt_lower or ("miete" in prompt_lower and not any(w in prompt_lower for w in ["nebenkosten", "betriebskosten"]))))
+    )
+
+    is_nk_senkung = not is_mietsenkung and any(w in prompt_lower for w in ["senk", "reduzier", "verringer", "nachlass"]) and (
         any(w in prompt_lower for w in ["nebenkosten", "betriebskosten", "vorauszahlung"]) or bool(re.search(r"\bnk\b", prompt_lower))
     )
 
-    is_nk_erhoehung = not is_mieterhoehung and any(w in prompt_lower for w in ["erhöh", "anheb", "anpass"]) and (
+    is_nk_erhoehung = not is_mieterhoehung and not is_mietsenkung and any(w in prompt_lower for w in ["erhöh", "anheb", "anpass"]) and (
         any(w in prompt_lower for w in ["nebenkosten", "betriebskosten", "vorauszahlung"]) or bool(re.search(r"\bnk\b", prompt_lower))
     )
 
-    # 1. Kaltmieterhöhung (§ 558 BGB) - Höchste Priorität bei Mieterhöhung
+    # 1. Kaltmieterhöhung (§ 558 BGB)
     if is_mieterhoehung:
         if is_percentage:
             diff = round(cur_cold * (pct_val / 100.0), 2)
@@ -238,6 +248,34 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
             f"Die monatliche Betriebskostenvorauszahlung in Höhe von {cur_nk:.2f} € bleibt hiervon unberührt. "
             f"Die neue monatliche Gesamtmiete beträgt somit {total_rent:.2f} €.\n\n"
             f"Wir bitten Sie höflich, der Mieterhöhung gemäß § 558b Abs. 1 BGB bis zum Ablauf der gesetzlichen Überlegungsfrist am {deadline_date_str} schriftlich zuzustimmen und Ihre Mietzahlungen ab dem {effective_cold_str} entsprechend anzupassen.\n\n"
+            f"Für Rückfragen stehen wir Ihnen jederzeit gern zur Verfügung."
+        )
+        return {"subject": subject, "body": body}
+
+    # 2. Kaltmietsenkung
+    if is_mietsenkung:
+        if is_percentage:
+            diff = round(cur_cold * (pct_val / 100.0), 2)
+            dec_label = f"Senkung um {pct_val:.1f} %: - {diff:.2f} €"
+        else:
+            diff = euro_val if euro_val > 0 else 50.0
+            dec_label = f"Monatlicher Senkungsbetrag: - {diff:.2f} €"
+
+        new_cold = max(0.0, cur_cold - diff)
+        total_rent = new_cold + cur_nk
+        subject = "Mitteilung über eine Herabsetzung der monatlichen Nettokaltmiete"
+        body = (
+            f"{sal_greeting},\n\n"
+            f"bezugnehmend auf das Mietverhältnis für die Wohnung ({unit_str}) möchten wir Ihnen eine erfreuliche Anpassung Ihrer monatlichen Nettokaltmiete mitteilen.\n\n"
+            f"Wir senken Ihre monatliche Nettokaltmiete zum rechtlich nächstmöglichen Zeitpunkt ab dem {effective_nk_str} um {diff:.2f} €.\n\n"
+            f"Zusammensetzung der Miete ab dem {effective_nk_str}:\n"
+            f"• Bisherige monatliche Nettokaltmiete: {cur_cold:.2f} €\n"
+            f"• {dec_label}\n"
+            f"• Neue monatliche Nettokaltmiete: {new_cold:.2f} €\n\n"
+            f"Die monatliche Betriebskostenvorauszahlung in Höhe von {cur_nk:.2f} € bleibt hiervon unberührt. "
+            f"Die neue monatliche Gesamtmiete beläuft sich somit auf {total_rent:.2f} €.\n\n"
+            f"Bitte passen Sie Ihren Dauerauftrag bzw. Ihre monatliche Banküberweisung zum genannten Stichtag entsprechend an. "
+            f"Falls Sie uns ein SEPA-Lastschriftmandat erteilt haben, buchen wir den reduzierten Betrag ab diesem Zeitpunkt automatisch ab.\n\n"
             f"Für Rückfragen stehen wir Ihnen jederzeit gern zur Verfügung."
         )
         return {"subject": subject, "body": body}
