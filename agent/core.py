@@ -59,6 +59,17 @@ def draft_letter_with_ai(
     juristisch fundiert nach deutschem Mietrecht (BGB) und im perfekten Tonfall zu verfassen.
     Gibt ein Dict mit {"subject": ..., "body": ...} zurück.
     """
+    import calendar
+    now = datetime.now()
+    m_end = (now.month + 2 - 1) % 12 + 1
+    y_end = now.year + (now.month + 2 - 1) // 12
+    last_day = calendar.monthrange(y_end, m_end)[1]
+    deadline_date_str = f"{last_day:02d}.{m_end:02d}.{y_end}"
+    m_eff = (now.month + 3 - 1) % 12 + 1
+    y_eff = now.year + (now.month + 3 - 1) // 12
+    effective_cold_str = f"01.{m_eff:02d}.{y_eff}"
+    effective_nk_str = f"01.{m_end:02d}.{y_end}"
+
     salutation = (tenant_info.get("salutation") if tenant_info else "") or ""
     if not salutation:
         salutation = "Frau" if any(fn in recipient_name.lower() for fn in ["laura", "sabine", "anna", "maria", "sarah", "julia", "lisa"]) else "Herr"
@@ -89,53 +100,71 @@ Deine Aufgabe ist es, anhand der Nutzeranweisung ein professionelles, rechtssich
 KONTEXT DES MIETERS:
 {tenant_context}
 
+GESETZLICHE FRISTEN & DATEN (Stand: {now.strftime("%d.%m.%Y")}):
+- Bei Kaltmieterhöhung (§ 558 BGB):
+  * Gesetzliche Zustimmungsfrist / Überlegungsfrist (§ 558b Abs. 1 BGB): bis zum {deadline_date_str} (Ende des übernächsten Monats)
+  * Wirksamkeit der neuen Kaltmiete: ab dem {effective_cold_str} (Beginn des dritten Monats)
+- Bei Anpassung der Nebenkostenvorauszahlung (§ 560 Abs. 4 BGB):
+  * Wirksamkeit: ab dem {effective_nk_str} (auf die Erklärung folgender übernächster Monatserster)
+
 WICHTIGE REGELN:
-1. Schreibe AUSSCHLIESSLICH in fehlerfreiem Deutsch.
-2. Der Brief MUSS mit der exakten Anredezeile beginnen: '{formal_greeting},' (niemals 'Sehr geehrte(r) Frau/Herr'!).
-3. Formuliere einen präzisen, juristisch sauberen Betreff ('subject') passend zum konkreten Anliegen.
+1. UNTERSCHEIDUNG MIETERHÖHUNG VS. NEBENKOSTEN:
+   - 'Mieterhöhung' oder 'Kaltmiete' betrifft AUSSCHLIESSLICH die Nettokaltmiete gemäß § 558 BGB. Erstelle hierbei NIEMALS ein Schreiben über Nebenkosten!
+   - Nebenkosten / Betriebskosten (§ 560 BGB) dürfen NUR angepasst werden, wenn der Nutzer explizit Nebenkosten oder Betriebskosten nennt.
+2. BERECHNUNG BEI PROZENTANGABEN (z. B. 15%):
+   - Wenn der Nutzer eine prozentuale Erhöhung verlangt (z. B. 15%), berechne den exakten Euro-Betrag:
+     Erhöhung in Euro = Aktuelle Kaltmiete * (Prozentsatz / 100)
+     Neue Kaltmiete = Aktuelle Kaltmiete + Erhöhung in Euro
+     (Beispiel: Bei 500 € Kaltmiete und 15% Erhöhung beträgt die Erhöhung 75,00 € und die neue Miete 575,00 € - NIEMALS um 15 € erhöhen!).
+3. Schreibe AUSSCHLIESSLICH in fehlerfreiem Deutsch.
+4. Der Brief MUSS mit der exakten Anredezeile beginnen: '{formal_greeting},' (niemals 'Sehr geehrte(r) Frau/Herr'!).
+5. Formuliere einen präzisen, juristisch sauberen Betreff ('subject') passend zum konkreten Anliegen.
    WICHTIG nach DIN 5008: Das Wort 'Betreff' oder 'Betreff:' darf NIEMALS vorangestellt werden (direkt mit dem Thema beginnen)!
    Beispiele:
+   - Bei Kaltmieterhöhung: "Mieterhöhungsverlangen gemäß § 558 BGB zur Anpassung an die ortsübliche Vergleichsmiete"
    - Bei Nebenkostensenkung: "Anpassung der monatlichen Betriebskostenvorauszahlung gemäß § 560 Abs. 4 BGB"
    - Bei Nebenkostenerhöhung: "Anpassung der monatlichen Betriebskostenvorauszahlung gemäß § 560 Abs. 4 BGB"
-   - Bei Mieterhöhung (Kaltmiete): "Mieterhöhungsverlangen gemäß § 558 BGB zur Anpassung an die ortsübliche Vergleichsmiete"
    - Bei Bankverbindung: "Mitteilung über eine Änderung der Bankverbindung für Mietzahlungen"
    - Bei Handwerker/Wartung: "Ankündigung von Instandhaltungs- und Handwerkerarbeiten"
    - Bei Abmahnung: "Abmahnung wegen vertragswidrigen Verhaltens"
-   - Bei sonstigen Anliegen: Treffender, sachlicher Betreff.
-4. Beziehe dich, wenn im deutschen Mietrecht vorgesehen, auf die einschlägigen Paragrafen (z. B. § 560 BGB für Nebenkostenvorauszahlungen, § 558 BGB für Kaltmiete, § 558b BGB für Zustimmungsfristen).
-5. Wenn 'rechtlich nächstmöglicher Zeitpunkt' gewünscht ist:
-   - Bei Nebenkostenvorauszahlungen (§ 560 Abs. 4 BGB): ab dem auf die Erklärung folgenden übernächsten Monatsersten.
-   - Bei Kaltmiete (§ 558 BGB): Überlegungsfrist bis Ende des übernächsten Monats, neue Miete ab dem darauffolgenden Monat.
-6. Der Brieftext ('body') muss enthalten:
+6. Beziehe dich, wenn im deutschen Mietrecht vorgesehen, auf die einschlägigen Paragrafen (z. B. § 560 BGB für Nebenkostenvorauszahlungen, § 558 BGB für Kaltmiete, § 558b BGB für Zustimmungsfristen).
+7. Der Brieftext ('body') muss enthalten:
    - Die Anredezeile '{formal_greeting},'
-   - Klare Darlegung des Sachverhalts und der Begründung mit konkreten Beträgen und Fristen.
-   - Angabe der neuen Beträge (Kaltmiete bzw. Vorauszahlung).
+   - Klare Darlegung des Sachverhalts und der Begründung mit konkreten Beträgen und Fristen (unter Verwendung der oben angegebenen gesetzlichen Termine).
+   - Angabe der neuen Beträge (bisherige Miete, Erhöhungsbetrag, neue Miete, neue Gesamtmiete).
    - Höflichen Schlusssatz.
    - WICHTIG nach DIN 5008: Falls eine Grußformel enthalten ist, lautet sie stets 'Mit freundlichen Grüßen' OHNE Komma am Ende.
-7. Antworte AUSSCHLIESSLICH im gültigen JSON-Format mit den Schlüsseln "subject" und "body".
+8. Antworte AUSSCHLIESSLICH im gültigen JSON-Format mit den Schlüsseln "subject" und "body".
 """
 
     try:
         response = ollama.chat(
             model=model,
+            format="json",
             messages=[
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": f"Nutzeranweisung: {user_prompt}"}
             ],
-            options={"temperature": 0.2}
+            options={"temperature": 0.1}
         )
         content = response["message"]["content"].strip()
-        json_match = re.search(r"\{.*\}", content, re.DOTALL)
-        if json_match:
-            data = json.loads(json_match.group(0))
-            if "subject" in data and "body" in data:
-                return data
+        data = {}
+        try:
+            data = json.loads(content)
+        except Exception:
+            json_match = re.search(r"\{.*\}", content, re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group(0))
+
+        if "subject" in data and "body" in data:
+            return data
     except Exception:
         pass
 
     return _build_fallback_letter(user_prompt, recipient_name, tenant_info)
 
 def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    import calendar
     prompt_lower = user_prompt.lower()
     
     salutation = (tenant_info.get("salutation") if tenant_info else "") or ""
@@ -145,65 +174,125 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
     last_name = (tenant_info.get("last_name") if tenant_info else recipient_name.split()[-1]).strip()
     sal_greeting = f"Sehr geehrte Frau {last_name}" if salutation == "Frau" else f"Sehr geehrter Herr {last_name}"
 
+    # 1. Prozentangabe prüfen (z. B. "15%", "15 Prozent", "15 %")
+    pct_match = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:%|prozent)", prompt_lower)
+    is_percentage = bool(pct_match)
+    pct_val = float(pct_match.group(1).replace(",", ".")) if pct_match else 0.0
+
+    # 2. Absoluten Euro-Betrag ermitteln (nur wenn keine Prozentangabe)
     amt_match = re.search(r"(?:um|von|betrag)?\s*(\d+(?:[.,]\d+)?)\s*(?:€|euro|\beuro\b)?", prompt_lower)
-    amt_val = float(amt_match.group(1).replace(",", ".")) if amt_match else 0.0
+    euro_val = float(amt_match.group(1).replace(",", ".")) if amt_match and not is_percentage else 0.0
 
     unit_str = tenant_info.get("unit_number", "Ihrer gemieteten Wohneinheit") if tenant_info else "Ihrer gemieteten Wohneinheit"
     cur_cold = float(tenant_info.get("cold_rent", 900.0)) if tenant_info else 900.0
     cur_nk = float(tenant_info.get("utility_advance", 220.0)) if tenant_info else 220.0
 
-    # 1. Nebenkostensenkung
-    if any(w in prompt_lower for w in ["senk", "reduzier", "verringer", "nachlass"]) and any(w in prompt_lower for w in ["nebenkosten", "betriebskosten", "nk", "vorauszahlung"]):
-        diff = amt_val if amt_val > 0 else 20.0
+    # Gesetzliche Termine berechnen (DIN / BGB)
+    now = datetime.now()
+    m_end = (now.month + 2 - 1) % 12 + 1
+    y_end = now.year + (now.month + 2 - 1) // 12
+    last_day = calendar.monthrange(y_end, m_end)[1]
+    deadline_date_str = f"{last_day:02d}.{m_end:02d}.{y_end}"
+
+    m_eff = (now.month + 3 - 1) % 12 + 1
+    y_eff = now.year + (now.month + 3 - 1) // 12
+    effective_cold_str = f"01.{m_eff:02d}.{y_eff}"
+    effective_nk_str = f"01.{m_end:02d}.{y_end}"
+
+    # Eindeutige Erkennung der Briefkategorie
+    is_mieterhoehung = (
+        any(w in prompt_lower for w in ["mieterhöhung", "mieterhoehung"])
+        or ("kaltmiete" in prompt_lower and any(w in prompt_lower for w in ["erhöh", "anheb", "anpass"]))
+        or ("miete" in prompt_lower and any(w in prompt_lower for w in ["erhöh", "anheb"]) and not any(w in prompt_lower for w in ["nebenkosten", "betriebskosten"]))
+    )
+
+    is_nk_senkung = any(w in prompt_lower for w in ["senk", "reduzier", "verringer", "nachlass"]) and (
+        any(w in prompt_lower for w in ["nebenkosten", "betriebskosten", "vorauszahlung"]) or bool(re.search(r"\bnk\b", prompt_lower))
+    )
+
+    is_nk_erhoehung = not is_mieterhoehung and any(w in prompt_lower for w in ["erhöh", "anheb", "anpass"]) and (
+        any(w in prompt_lower for w in ["nebenkosten", "betriebskosten", "vorauszahlung"]) or bool(re.search(r"\bnk\b", prompt_lower))
+    )
+
+    # 1. Kaltmieterhöhung (§ 558 BGB) - Höchste Priorität bei Mieterhöhung
+    if is_mieterhoehung:
+        if is_percentage:
+            diff = round(cur_cold * (pct_val / 100.0), 2)
+            inc_label = f"Erhöhung um {pct_val:.1f} %: + {diff:.2f} €"
+        else:
+            diff = euro_val if euro_val > 0 else 50.0
+            inc_label = f"Monatlicher Erhöhungsbetrag: + {diff:.2f} €"
+
+        new_cold = cur_cold + diff
+        total_rent = new_cold + cur_nk
+        subject = "Mieterhöhungsverlangen gemäß § 558 BGB zur Anpassung an die ortsübliche Vergleichsmiete"
+        body = (
+            f"{sal_greeting},\n\n"
+            f"hiermit kündigen wir Ihnen eine Erhöhung der monatlichen Nettokaltmiete für die von Ihnen angemietete Wohnung ({unit_str}) an.\n\n"
+            f"Gemäß § 558 BGB sind wir berechtigt, die Miete bis zur ortsüblichen Vergleichsmiete anzupassen. "
+            f"Die gesetzliche Kappungsgrenze sowie die 15-monatige Wartefrist seit Mietbeginn bzw. der letzten Mieterhöhung werden dabei vollständig eingehalten.\n\n"
+            f"Zusammensetzung der Miete ab dem {effective_cold_str}:\n"
+            f"• Bisherige monatliche Nettokaltmiete: {cur_cold:.2f} €\n"
+            f"• {inc_label}\n"
+            f"• Neue monatliche Nettokaltmiete: {new_cold:.2f} €\n\n"
+            f"Die monatliche Betriebskostenvorauszahlung in Höhe von {cur_nk:.2f} € bleibt hiervon unberührt. "
+            f"Die neue monatliche Gesamtmiete beträgt somit {total_rent:.2f} €.\n\n"
+            f"Wir bitten Sie höflich, der Mieterhöhung gemäß § 558b Abs. 1 BGB bis zum Ablauf der gesetzlichen Überlegungsfrist am {deadline_date_str} schriftlich zuzustimmen und Ihre Mietzahlungen ab dem {effective_cold_str} entsprechend anzupassen.\n\n"
+            f"Für Rückfragen stehen wir Ihnen jederzeit gern zur Verfügung."
+        )
+        return {"subject": subject, "body": body}
+
+    # 2. Nebenkostensenkung (§ 560 Abs. 4 BGB)
+    if is_nk_senkung:
+        if is_percentage:
+            diff = round(cur_nk * (pct_val / 100.0), 2)
+            dec_label = f"Monatlicher Senkungsbetrag ({pct_val:.1f} %): - {diff:.2f} €"
+        else:
+            diff = euro_val if euro_val > 0 else 20.0
+            dec_label = f"Monatlicher Senkungsbetrag: - {diff:.2f} €"
+
         new_nk = max(0.0, cur_nk - diff)
+        total_rent = cur_cold + new_nk
         subject = "Anpassung der monatlichen Betriebskostenvorauszahlung gemäß § 560 Abs. 4 BGB"
         body = (
             f"{sal_greeting},\n\n"
             f"bezugnehmend auf das bestehende Mietverhältnis für die Wohnung ({unit_str}) möchten wir Ihnen eine erfreuliche Anpassung Ihrer Betriebskostenvorauszahlung mitteilen.\n\n"
             f"Gemäß § 560 Abs. 4 BGB sind die Vertragsparteien berechtigt, nach einer Abrechnung bzw. bei veränderten Kostenprognosen die Vorauszahlungen auf eine angemessene Höhe anzupassen. "
-            f"Da die laufenden Betriebskosten geringer ausfallen, senken wir Ihre monatliche Vorauszahlung um {diff:.2f} € zum rechtlich nächstmöglichen Zeitpunkt.\n\n"
-            f"Zusammensetzung ab dem übernächsten Monatsersten:\n"
+            f"Da die laufenden Betriebskosten geringer ausfallen, senken wir Ihre monatliche Vorauszahlung zum rechtlich nächstmöglichen Zeitpunkt (ab dem {effective_nk_str}).\n\n"
+            f"Zusammensetzung ab dem {effective_nk_str}:\n"
             f"• Bisherige monatliche Vorauszahlung: {cur_nk:.2f} €\n"
-            f"• Monatlicher Senkungsbetrag: - {diff:.2f} €\n"
+            f"• {dec_label}\n"
             f"• Neue monatliche Betriebskostenvorauszahlung: {new_nk:.2f} €\n\n"
             f"Ihre monatliche Nettokaltmiete in Höhe von {cur_cold:.2f} € bleibt hiervon unberührt. "
-            f"Bitte passen Sie Ihren Dauerauftrag bzw. Ihre monatliche Banküberweisung entsprechend an. Falls Sie uns ein SEPA-Lastschriftmandat erteilt haben, buchen wir den reduzierten Betrag ab diesem Zeitpunkt automatisch ab.\n\n"
+            f"Die neue monatliche Gesamtmiete beläuft sich somit auf {total_rent:.2f} €.\n\n"
+            f"Bitte passen Sie Ihren Dauerauftrag bzw. Ihre monatliche Banküberweisung zum genannten Stichtag entsprechend an. Falls Sie uns ein SEPA-Lastschriftmandat erteilt haben, buchen wir den reduzierten Betrag ab diesem Zeitpunkt automatisch ab.\n\n"
             f"Für Rückfragen stehen wir Ihnen jederzeit gern zur Verfügung."
         )
         return {"subject": subject, "body": body}
 
-    # 2. Nebenkostenerhöhung
-    if any(w in prompt_lower for w in ["erhöh", "anheb", "anpass"]) and any(w in prompt_lower for w in ["nebenkosten", "betriebskosten", "nk", "vorauszahlung"]):
-        diff = amt_val if amt_val > 0 else 30.0
+    # 3. Nebenkostenerhöhung (§ 560 Abs. 4 BGB)
+    if is_nk_erhoehung:
+        if is_percentage:
+            diff = round(cur_nk * (pct_val / 100.0), 2)
+            inc_label = f"Monatlicher Anpassungsbetrag ({pct_val:.1f} %): + {diff:.2f} €"
+        else:
+            diff = euro_val if euro_val > 0 else 30.0
+            inc_label = f"Monatlicher Anpassungsbetrag: + {diff:.2f} €"
+
         new_nk = cur_nk + diff
+        total_rent = cur_cold + new_nk
         subject = "Anpassung der monatlichen Betriebskostenvorauszahlung gemäß § 560 Abs. 4 BGB"
         body = (
             f"{sal_greeting},\n\n"
             f"bezugnehmend auf das Mietverhältnis für die Wohnung ({unit_str}) teilen wir Ihnen hiermit eine Anpassung der monatlichen Vorauszahlungen auf die Betriebskosten mit.\n\n"
             f"Gemäß § 560 Abs. 4 BGB passen wir die monatliche Vorauszahlung an die gestiegenen Bewirtschaftungskosten an, um hohe Nachzahlungen bei der nächsten Jahresabrechnung zu vermeiden. "
-            f"Die Anpassung erfolgt zum rechtlich nächstmöglichen Zeitpunkt (ab dem übernächsten Monatsersten).\n\n"
+            f"Die Anpassung erfolgt zum rechtlich nächstmöglichen Zeitpunkt ab dem {effective_nk_str} (auf die Erklärung folgender übernächster Monatserster).\n\n"
             f"Übersicht der Anpassung:\n"
             f"• Bisherige Vorauszahlung: {cur_nk:.2f} €\n"
-            f"• Anpassungsbetrag: + {diff:.2f} €\n"
+            f"• {inc_label}\n"
             f"• Neue monatliche Betriebskostenvorauszahlung: {new_nk:.2f} €\n\n"
-            f"Die Nettokaltmiete ({cur_cold:.2f} €) bleibt unverändert. Bitte passen Sie Ihre Zahlungsanweisung zum genannten Termin an."
-        )
-        return {"subject": subject, "body": body}
-
-    # 3. Kaltmieterhöhung (§ 558 BGB)
-    if any(w in prompt_lower for w in ["mieterhöhung", "mieterhoehung", "kaltmiete"]):
-        diff = amt_val if amt_val > 0 else 50.0
-        new_cold = cur_cold + diff
-        subject = "Mieterhöhungsverlangen gemäß § 558 BGB zur Anpassung an die ortsübliche Vergleichsmiete"
-        body = (
-            f"{sal_greeting},\n\n"
-            f"hiermit kündigen wir Ihnen eine Erhöhung der monatlichen Nettokaltmiete für die von Ihnen angemietete Wohnung ({unit_str}) an.\n\n"
-            f"Gemäß § 558 BGB sind wir berechtigt, die Miete bis zur ortsüblichen Vergleichsmiete anzupassen. Die gesetzliche Kappungsgrenze und die 15-monatige Wartefrist werden vollständig eingehalten.\n\n"
-            f"Übersicht:\n"
-            f"• Bisherige Nettokaltmiete: {cur_cold:.2f} €\n"
-            f"• Erhöhung: + {diff:.2f} €\n"
-            f"• Neue monatliche Nettokaltmiete: {new_cold:.2f} €\n\n"
-            f"Die Betriebskostenvorauszahlung bleibt unberührt. Wir bitten Sie um Ihre schriftliche Zustimmung gemäß § 558b Abs. 1 BGB bis zum Ablauf des übernächsten Monats."
+            f"Die Nettokaltmiete ({cur_cold:.2f} €) bleibt unverändert. Die neue monatliche Gesamtmiete beträgt somit {total_rent:.2f} €.\n\n"
+            f"Bitte passen Sie Ihre Zahlungsanweisung zum genannten Termin an."
         )
         return {"subject": subject, "body": body}
 
@@ -248,6 +337,7 @@ def parse_user_intent_ollama(user_prompt: str, model: str = "llama3") -> Dict[st
     try:
         response = ollama.chat(
             model=model,
+            format="json",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt}
@@ -270,8 +360,8 @@ def parse_user_intent_ollama(user_prompt: str, model: str = "llama3") -> Dict[st
     prompt_lower = user_prompt.lower()
     
     # 1. Briefe & Schreiben jeglicher Art (Priorität vor Mieterliste!)
-    if any(w in prompt_lower for w in ["brief", "schreiben", "anschreiben", "abmahnung", "mahnung", "mitteilung an", "nachricht an"]) or (
-        any(w in prompt_lower for w in ["nebenkosten", "kaltmiete", "betriebskosten"]) and any(w in prompt_lower for w in ["senk", "erhöh", "anpass", "reduzier"])
+    if any(w in prompt_lower for w in ["brief", "schreiben", "anschreiben", "abmahnung", "mahnung", "mitteilung an", "nachricht an", "mieterhöhung", "mieterhoehung"]) or (
+        any(w in prompt_lower for w in ["nebenkosten", "kaltmiete", "betriebskosten", "miete"]) and any(w in prompt_lower for w in ["senk", "erhöh", "anpass", "reduzier"])
     ):
         name_match = re.search(r"(?:an|für|von)\s+([A-Za-zÄÖÜäöüß]+(?:\s+[A-Za-zÄÖÜäöüß]+)?)", user_prompt, re.IGNORECASE)
         tenant_name = name_match.group(1).strip() if name_match else ""
