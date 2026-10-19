@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS units (
 CREATE TABLE IF NOT EXISTS tenants (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     unit_id INTEGER NOT NULL,
+    salutation TEXT DEFAULT 'Herr', -- 'Herr', 'Frau'
     first_name TEXT NOT NULL,
     last_name TEXT NOT NULL,
     email TEXT,

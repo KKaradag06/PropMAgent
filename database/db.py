@@ -15,11 +15,17 @@ def get_connection() -> sqlite3.Connection:
     return conn
 
 def init_db() -> None:
-    """Initialisiert die Tabellen basierend auf schema.sql."""
+    """Initialisiert die Tabellen basierend auf schema.sql und migriert fehlende Spalten."""
     with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
         schema = f.read()
     with get_connection() as conn:
         conn.executescript(schema)
+        # Migration: salutation Spalte sicherstellen
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(tenants);").fetchall()]
+        if "salutation" not in columns:
+            conn.execute("ALTER TABLE tenants ADD COLUMN salutation TEXT DEFAULT 'Herr';")
+        # Automatisch korrigieren falls Laura Schmidt noch Herr hat
+        conn.execute("UPDATE tenants SET salutation = 'Frau' WHERE first_name = 'Laura' OR last_name = 'Schmidt';")
         conn.commit()
 
 def query_db(query: str, args: tuple = ()) -> List[Dict[str, Any]]:

@@ -9,7 +9,7 @@ def calculate_utility_bill(tenant_id: int, year: int) -> Dict[str, Any]:
     # 1. Mieter- und Wohnungsdaten abrufen
     tenant_query = """
         SELECT 
-            t.id as tenant_id, t.first_name, t.last_name, t.email, t.phone,
+            t.id as tenant_id, t.salutation, t.first_name, t.last_name, t.email, t.phone,
             t.cold_rent, t.utility_advance,
             u.id as unit_id, u.unit_number, u.floor, u.area_sqm as tenant_sqm,
             p.id as property_id, p.name as property_name, p.street, p.zip_code, p.city,

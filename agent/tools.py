@@ -16,6 +16,7 @@ def get_all_units() -> List[Dict[str, Any]]:
 def add_new_tenant(
     first_name: str,
     last_name: str,
+    salutation: str = "Herr",
     unit_id: Optional[int] = None,
     unit_search: Optional[str] = None,
     cold_rent: float = 0.0,
@@ -42,12 +43,13 @@ def add_new_tenant(
             raise ValueError("Keine Wohneinheit in der Datenbank vorhanden.")
 
     new_id = execute_db("""
-        INSERT INTO tenants (unit_id, first_name, last_name, email, phone, lease_start, cold_rent, utility_advance, is_active)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1);
-    """, (unit_id, first_name.strip(), last_name.strip(), email.strip(), phone.strip(), lease_start, float(cold_rent), float(utility_advance)))
+        INSERT INTO tenants (unit_id, salutation, first_name, last_name, email, phone, lease_start, cold_rent, utility_advance, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1);
+    """, (unit_id, salutation.strip(), first_name.strip(), last_name.strip(), email.strip(), phone.strip(), lease_start, float(cold_rent), float(utility_advance)))
 
     return {
         "tenant_id": new_id,
+        "salutation": salutation,
         "first_name": first_name,
         "last_name": last_name,
         "unit_id": unit_id
@@ -58,6 +60,7 @@ def update_tenant(
     first_name: str,
     last_name: str,
     unit_id: int,
+    salutation: str = "Herr",
     cold_rent: float = 0.0,
     utility_advance: float = 0.0,
     lease_start: Optional[str] = None,
@@ -75,6 +78,7 @@ def update_tenant(
         UPDATE tenants
         SET first_name = ?,
             last_name = ?,
+            salutation = ?,
             unit_id = ?,
             cold_rent = ?,
             utility_advance = ?,
@@ -87,6 +91,7 @@ def update_tenant(
     """, (
         first_name.strip(),
         last_name.strip(),
+        salutation.strip(),
         unit_id,
         float(cold_rent or 0.0),
         float(utility_advance or 0.0),
@@ -106,27 +111,36 @@ def delete_tenant(tenant_id: int) -> bool:
     return True
 
 def get_all_tenants() -> List[Dict[str, Any]]:
-    """Gibt alle Mieter mit Wohneinheit und Liegenschaft zurück."""
+    """Gibt alle Mieter mit Wohneinheit, Liegenschaft und berechnetem m²-Preis zurück."""
     sql = """
         SELECT 
-            t.id as tenant_id, t.unit_id, t.first_name, t.last_name, t.email, t.phone,
+            t.id as tenant_id, t.unit_id, t.salutation, t.first_name, t.last_name, t.email, t.phone,
             t.cold_rent, t.utility_advance, t.lease_start, t.lease_end, t.is_active,
             u.unit_number, u.area_sqm,
-            p.name as property_name
+            p.name as property_name, p.street, p.zip_code, p.city
         FROM tenants t
         JOIN units u ON t.unit_id = u.id
         JOIN properties p ON u.property_id = p.id
         ORDER BY t.last_name ASC;
     """
-    return query_db(sql)
+    rows = query_db(sql)
+    for r in rows:
+        area = float(r.get("area_sqm") or 0.0)
+        rent = float(r.get("cold_rent") or 0.0)
+        r["price_per_sqm"] = round(rent / area, 2) if area > 0 else 0.0
+        if not r.get("salutation"):
+            r["salutation"] = "Herr"
+    return rows
 
 def find_tenant_by_name(name_query: str) -> Optional[Dict[str, Any]]:
     """Sucht einen Mieter nach Vor- oder Nachname (case-insensitive)."""
     search_term = f"%{name_query.strip().lower()}%"
     sql = """
         SELECT 
-            t.id as tenant_id, t.first_name, t.last_name,
-            u.unit_number, p.name as property_name
+            t.id as tenant_id, t.unit_id, t.salutation, t.first_name, t.last_name,
+            t.cold_rent, t.utility_advance,
+            u.unit_number, u.area_sqm,
+            p.name as property_name, p.street, p.zip_code, p.city
         FROM tenants t
         JOIN units u ON t.unit_id = u.id
         JOIN properties p ON u.property_id = p.id
@@ -135,7 +149,15 @@ def find_tenant_by_name(name_query: str) -> Optional[Dict[str, Any]]:
         LIMIT 1;
     """
     results = query_db(sql, (search_term, search_term, search_term))
-    return results[0] if results else None
+    if results:
+        res = results[0]
+        area = float(res.get("area_sqm") or 0.0)
+        rent = float(res.get("cold_rent") or 0.0)
+        res["price_per_sqm"] = round(rent / area, 2) if area > 0 else 0.0
+        if not res.get("salutation"):
+            res["salutation"] = "Herr"
+        return res
+    return None
 
 def get_expenses_summary(year: int) -> List[Dict[str, Any]]:
     """Gibt die Betriebskosten eines Jahres zurück."""

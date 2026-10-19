@@ -51,8 +51,12 @@ def generate_utility_bill_pdf(bill_data: Dict[str, Any], custom_message: str = "
     elements.append(Spacer(1, 0.5 * cm))
 
     # 2. Empfängeradresse
+    salutation = tenant.get("salutation") or "Herr"
+    sal_title = f"{salutation} " if salutation in ("Herr", "Frau") else ""
+    sal_greeting = f"Sehr geehrte Frau {tenant['last_name']}" if salutation == "Frau" else f"Sehr geehrter Herr {tenant['last_name']}"
+
     recipient_text = f"""
-    <b>{tenant['first_name']} {tenant['last_name']}</b><br/>
+    <b>{sal_title}{tenant['first_name']} {tenant['last_name']}</b><br/>
     {tenant['street']}<br/>
     {tenant['unit_number']}<br/>
     {tenant['zip_code']} {tenant['city']}
@@ -74,7 +78,7 @@ def generate_utility_bill_pdf(bill_data: Dict[str, Any], custom_message: str = "
         intro_text = custom_message.replace("\n", "<br/>")
     else:
         intro_text = f"""
-        Sehr geehrte(r) Frau/Herr {tenant['last_name']},<br/><br/>
+        {sal_greeting},<br/><br/>
         anbei erhalten Sie die Abrechnung über die Betriebskosten für das Kalenderjahr {year}.
         Die Kosten wurden gemäß den Vereinbarungen Ihres Mietvertrages und der Betriebskostenverordnung ermittelt.
         """

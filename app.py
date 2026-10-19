@@ -187,11 +187,13 @@ elif menu == "👥 Mieter & Einheiten":
             df = pd.DataFrame(tenants)
             df_display = df.rename(columns={
                 "tenant_id": "ID",
+                "salutation": "Anrede",
                 "first_name": "Vorname",
                 "last_name": "Nachname",
                 "unit_number": "Wohneinheit",
                 "area_sqm": "Fläche (m²)",
                 "cold_rent": "Kaltmiete (€)",
+                "price_per_sqm": "Miete / m² (€)",
                 "utility_advance": "NK-Vorauszahlung (€)",
                 "property_name": "Objekt",
                 "phone": "Telefon",
@@ -199,7 +201,7 @@ elif menu == "👥 Mieter & Einheiten":
                 "lease_start": "Mietbeginn",
                 "lease_end": "Mietende"
             })
-            cols_to_show = [c for c in ["ID", "Vorname", "Nachname", "Wohneinheit", "Fläche (m²)", "Kaltmiete (€)", "NK-Vorauszahlung (€)", "Mietbeginn", "Telefon", "E-Mail"] if c in df_display.columns]
+            cols_to_show = [c for c in ["ID", "Anrede", "Vorname", "Nachname", "Wohneinheit", "Fläche (m²)", "Kaltmiete (€)", "Miete / m² (€)", "NK-Vorauszahlung (€)", "Mietbeginn", "Telefon", "E-Mail"] if c in df_display.columns]
             st.dataframe(df_display[cols_to_show], use_container_width=True, hide_index=True)
             
             # Schnell-Abrechnungsgenerator pro Mieter
@@ -207,7 +209,7 @@ elif menu == "👥 Mieter & Einheiten":
             st.subheader("⚡ 1-Klick Abrechnungs-Erstellung")
             col_sel, col_yr, col_btn = st.columns([3, 1, 2])
             with col_sel:
-                tenant_names = {f"{t['first_name']} {t['last_name']} ({t['unit_number']})": t["tenant_id"] for t in tenants}
+                tenant_names = {f"{t.get('salutation', 'Herr')} {t['first_name']} {t['last_name']} ({t['unit_number']})": t["tenant_id"] for t in tenants}
                 selected_t_name = st.selectbox("Mieter auswählen", list(tenant_names.keys()), key="bill_tenant_select")
             with col_yr:
                 year_val = st.number_input("Abrechnungsjahr", min_value=2020, max_value=2030, value=2025, key="bill_year_input")
@@ -235,7 +237,9 @@ elif menu == "👥 Mieter & Einheiten":
         st.caption("Pflichtfelder sind nur Vor- und Nachname. Alle anderen Felder können frei bleiben oder später ergänzt werden.")
         
         with st.form("form_add_tenant", clear_on_submit=True):
-            col_fn, col_ln = st.columns(2)
+            col_sal, col_fn, col_ln = st.columns([1, 2, 2])
+            with col_sal:
+                new_sal = st.selectbox("Anrede", ["Herr", "Frau"])
             with col_fn:
                 new_fn = st.text_input("Vorname *", placeholder="z. B. Sabine")
             with col_ln:
@@ -271,6 +275,7 @@ elif menu == "👥 Mieter & Einheiten":
                     add_new_tenant(
                         first_name=new_fn.strip(),
                         last_name=new_ln.strip(),
+                        salutation=new_sal,
                         unit_id=selected_unit_id,
                         cold_rent=new_cr,
                         utility_advance=new_nk,
@@ -278,18 +283,22 @@ elif menu == "👥 Mieter & Einheiten":
                         email=new_em,
                         phone=new_ph
                     )
-                    st.success(f"✅ Mieter {new_fn} {new_ln} wurde erfolgreich angelegt!")
+                    st.success(f"✅ Mieter {new_sal} {new_fn} {new_ln} wurde erfolgreich angelegt!")
                     st.rerun()
 
     with tab_edit:
         st.subheader("✏️ Bestehenden Mieter bearbeiten")
         if tenants:
-            tenant_dict = {f"{t['first_name']} {t['last_name']} (ID {t['tenant_id']} - {t['unit_number']})": t for t in tenants}
+            tenant_dict = {f"{t.get('salutation', 'Herr')} {t['first_name']} {t['last_name']} (ID {t['tenant_id']} - {t['unit_number']})": t for t in tenants}
             selected_label = st.selectbox("Wähle einen Mieter zum Bearbeiten", list(tenant_dict.keys()), key="edit_select_tenant")
             t_data = tenant_dict[selected_label]
             
             with st.form("form_edit_tenant"):
-                col_e_fn, col_e_ln = st.columns(2)
+                col_e_sal, col_e_fn, col_e_ln = st.columns([1, 2, 2])
+                with col_e_sal:
+                    cur_sal = t_data.get("salutation", "Herr") or "Herr"
+                    sal_idx = 1 if cur_sal == "Frau" else 0
+                    edit_sal = st.selectbox("Anrede", ["Herr", "Frau"], index=sal_idx)
                 with col_e_fn:
                     edit_fn = st.text_input("Vorname *", value=t_data.get("first_name", ""))
                 with col_e_ln:
@@ -341,6 +350,7 @@ elif menu == "👥 Mieter & Einheiten":
                             tenant_id=t_data["tenant_id"],
                             first_name=edit_fn.strip(),
                             last_name=edit_ln.strip(),
+                            salutation=edit_sal,
                             unit_id=edit_unit_id,
                             cold_rent=edit_cr,
                             utility_advance=edit_nk,
@@ -350,7 +360,7 @@ elif menu == "👥 Mieter & Einheiten":
                             phone=edit_ph.strip(),
                             is_active=1
                         )
-                        st.success(f"✅ Daten von {edit_fn} {edit_ln} wurden erfolgreich aktualisiert!")
+                        st.success(f"✅ Daten von {edit_sal} {edit_fn} {edit_ln} wurden erfolgreich aktualisiert!")
                         st.rerun()
                         
                 if delete_clicked:

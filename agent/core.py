@@ -59,12 +59,25 @@ def draft_letter_with_ai(
     juristisch fundiert nach deutschem Mietrecht (BGB) und im perfekten Tonfall zu verfassen.
     Gibt ein Dict mit {"subject": ..., "body": ...} zurück.
     """
-    context_lines = [f"Empfängername: {recipient_name}"]
+    salutation = (tenant_info.get("salutation") if tenant_info else "") or ""
+    if not salutation:
+        salutation = "Frau" if any(fn in recipient_name.lower() for fn in ["laura", "sabine", "anna", "maria", "sarah", "julia", "lisa"]) else "Herr"
+
+    last_name = (tenant_info.get("last_name") if tenant_info else recipient_name.split()[-1]).strip()
+    formal_greeting = f"Sehr geehrte Frau {last_name}" if salutation == "Frau" else f"Sehr geehrter Herr {last_name}"
+
+    context_lines = [
+        f"Empfänger: {recipient_name}",
+        f"Anrede: {salutation}",
+        f"Verbindliche Briefanredezeile: {formal_greeting},"
+    ]
     if tenant_info:
         context_lines.append(f"Mietobjekt: {tenant_info.get('property_name', 'Wohnanlage')}")
         context_lines.append(f"Wohneinheit: {tenant_info.get('unit_number', '')}")
         context_lines.append(f"Aktuelle Nettokaltmiete: {tenant_info.get('cold_rent', 0.0):.2f} €")
         context_lines.append(f"Aktuelle monatliche Nebenkostenvorauszahlung: {tenant_info.get('utility_advance', 0.0):.2f} €")
+        if tenant_info.get('price_per_sqm'):
+            context_lines.append(f"Quadratmeterpreis: {tenant_info.get('price_per_sqm'):.2f} €/m²")
         if tenant_info.get('lease_start'):
             context_lines.append(f"Mietbeginn: {tenant_info.get('lease_start')}")
     
@@ -78,7 +91,8 @@ KONTEXT DES MIETERS:
 
 WICHTIGE REGELN:
 1. Schreibe AUSSCHLIESSLICH in fehlerfreiem Deutsch.
-2. Formuliere einen präzisen, juristisch sauberen Betreff ('subject') passend zum konkreten Anliegen. Beispiele:
+2. Der Brief MUSS mit der exakten Anredezeile beginnen: '{formal_greeting},' (niemals 'Sehr geehrte(r) Frau/Herr'!).
+3. Formuliere einen präzisen, juristisch sauberen Betreff ('subject') passend zum konkreten Anliegen. Beispiele:
    - Bei Nebenkostensenkung: "Anpassung der monatlichen Betriebskostenvorauszahlung gemäß § 560 Abs. 4 BGB"
    - Bei Nebenkostenerhöhung: "Anpassung der monatlichen Betriebskostenvorauszahlung gemäß § 560 Abs. 4 BGB"
    - Bei Mieterhöhung (Kaltmiete): "Mieterhöhungsverlangen gemäß § 558 BGB zur Anpassung an die ortsübliche Vergleichsmiete"
@@ -86,16 +100,16 @@ WICHTIGE REGELN:
    - Bei Handwerker/Wartung: "Ankündigung von Instandhaltungs- und Handwerkerarbeiten"
    - Bei Abmahnung: "Abmahnung wegen vertragswidrigen Verhaltens"
    - Bei sonstigen Anliegen: Treffender, sachlicher Betreff.
-3. Beziehe dich, wenn im deutschen Mietrecht vorgesehen, auf die einschlägigen Paragrafen (z. B. § 560 BGB für Nebenkostenvorauszahlungen, § 558 BGB für Kaltmiete, § 558b BGB für Zustimmungsfristen).
-4. Wenn 'rechtlich nächstmöglicher Zeitpunkt' gewünscht ist:
+4. Beziehe dich, wenn im deutschen Mietrecht vorgesehen, auf die einschlägigen Paragrafen (z. B. § 560 BGB für Nebenkostenvorauszahlungen, § 558 BGB für Kaltmiete, § 558b BGB für Zustimmungsfristen).
+5. Wenn 'rechtlich nächstmöglicher Zeitpunkt' gewünscht ist:
    - Bei Nebenkostenvorauszahlungen (§ 560 Abs. 4 BGB): ab dem auf die Erklärung folgenden übernächsten Monatsersten.
    - Bei Kaltmiete (§ 558 BGB): Überlegungsfrist bis Ende des übernächsten Monats, neue Miete ab dem darauffolgenden Monat.
-5. Der Brieftext ('body') muss enthalten:
-   - Formelle Anrede: "Sehr geehrte(r) Frau/Herr [Nachname]" (oder voller Name).
+6. Der Brieftext ('body') muss enthalten:
+   - Die Anredezeile '{formal_greeting},'
    - Klare Darlegung des Sachverhalts und der Begründung mit konkreten Beträgen und Fristen.
-   - Angabe der neuen Gesamtmiete bzw. Vorauszahlung.
+   - Angabe der neuen Beträge (Kaltmiete bzw. Vorauszahlung).
    - Höfliche Schluss- und Grußformel.
-6. Antworte AUSSCHLIESSLICH im gültigen JSON-Format mit den Schlüsseln "subject" und "body".
+7. Antworte AUSSCHLIESSLICH im gültigen JSON-Format mit den Schlüsseln "subject" und "body".
 """
 
     try:
@@ -121,6 +135,13 @@ WICHTIGE REGELN:
 def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: Optional[Dict[str, Any]]) -> Dict[str, str]:
     prompt_lower = user_prompt.lower()
     
+    salutation = (tenant_info.get("salutation") if tenant_info else "") or ""
+    if not salutation:
+        salutation = "Frau" if any(fn in recipient_name.lower() for fn in ["laura", "sabine", "anna", "maria", "sarah", "julia", "lisa"]) else "Herr"
+
+    last_name = (tenant_info.get("last_name") if tenant_info else recipient_name.split()[-1]).strip()
+    sal_greeting = f"Sehr geehrte Frau {last_name}" if salutation == "Frau" else f"Sehr geehrter Herr {last_name}"
+
     amt_match = re.search(r"(?:um|von|betrag)?\s*(\d+(?:[.,]\d+)?)\s*(?:€|euro|\beuro\b)?", prompt_lower)
     amt_val = float(amt_match.group(1).replace(",", ".")) if amt_match else 0.0
 
@@ -134,7 +155,7 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
         new_nk = max(0.0, cur_nk - diff)
         subject = "Anpassung der monatlichen Betriebskostenvorauszahlung gemäß § 560 Abs. 4 BGB"
         body = (
-            f"Sehr geehrte(r) Frau/Herr {recipient_name},\n\n"
+            f"{sal_greeting},\n\n"
             f"bezugnehmend auf das bestehende Mietverhältnis für die Wohnung ({unit_str}) möchten wir Ihnen eine erfreuliche Anpassung Ihrer Betriebskostenvorauszahlung mitteilen.\n\n"
             f"Gemäß § 560 Abs. 4 BGB sind die Vertragsparteien berechtigt, nach einer Abrechnung bzw. bei veränderten Kostenprognosen die Vorauszahlungen auf eine angemessene Höhe anzupassen. "
             f"Da die laufenden Betriebskosten geringer ausfallen, senken wir Ihre monatliche Vorauszahlung um {diff:.2f} € zum rechtlich nächstmöglichen Zeitpunkt.\n\n"
@@ -154,7 +175,7 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
         new_nk = cur_nk + diff
         subject = "Anpassung der monatlichen Betriebskostenvorauszahlung gemäß § 560 Abs. 4 BGB"
         body = (
-            f"Sehr geehrte(r) Frau/Herr {recipient_name},\n\n"
+            f"{sal_greeting},\n\n"
             f"bezugnehmend auf das Mietverhältnis für die Wohnung ({unit_str}) teilen wir Ihnen hiermit eine Anpassung der monatlichen Vorauszahlungen auf die Betriebskosten mit.\n\n"
             f"Gemäß § 560 Abs. 4 BGB passen wir die monatliche Vorauszahlung an die gestiegenen Bewirtschaftungskosten an, um hohe Nachzahlungen bei der nächsten Jahresabrechnung zu vermeiden. "
             f"Die Anpassung erfolgt zum rechtlich nächstmöglichen Zeitpunkt (ab dem übernächsten Monatsersten).\n\n"
@@ -172,7 +193,7 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
         new_cold = cur_cold + diff
         subject = "Mieterhöhungsverlangen gemäß § 558 BGB zur Anpassung an die ortsübliche Vergleichsmiete"
         body = (
-            f"Sehr geehrte(r) Frau/Herr {recipient_name},\n\n"
+            f"{sal_greeting},\n\n"
             f"hiermit kündigen wir Ihnen eine Erhöhung der monatlichen Nettokaltmiete für die von Ihnen angemietete Wohnung ({unit_str}) an.\n\n"
             f"Gemäß § 558 BGB sind wir berechtigt, die Miete bis zur ortsüblichen Vergleichsmiete anzupassen. Die gesetzliche Kappungsgrenze und die 15-monatige Wartefrist werden vollständig eingehalten.\n\n"
             f"Übersicht:\n"
@@ -187,7 +208,7 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
     if any(w in prompt_lower for w in ["bankverbindung", "konto", "iban", "kontaktdaten"]):
         subject = "Wichtige Mitteilung: Aktualisierung der Bankverbindung für Mietzahlungen"
         body = (
-            f"Sehr geehrte(r) Frau/Herr {recipient_name},\n\n"
+            f"{sal_greeting},\n\n"
             f"wir möchten Sie darüber informieren, dass sich unsere Bankverbindung für die Überweisung der monatlichen Miete ({unit_str}) ändert.\n\n"
             f"Bitte richten Sie Ihre Zahlungen ab dem kommenden Monatsersten an folgendes Konto:\n"
             f"• Kontoinhaber: Hausverwaltung Sonnenhang\n"
@@ -202,7 +223,7 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
     if any(w in prompt_lower for w in ["handwerker", "wartung", "reparatur", "begehung", "ablesung"]):
         subject = "Ankündigung von Handwerker- und Instandhaltungsarbeiten"
         body = (
-            f"Sehr geehrte(r) Frau/Herr {recipient_name},\n\n"
+            f"{sal_greeting},\n\n"
             f"wir kündigen Ihnen hiermit anstehende Arbeiten in Ihrer Wohnanlage ({unit_str}) an.\n\n"
             f"Grund: {user_prompt}\n\n"
             f"Bitte gewähren Sie den beauftragten Handwerkern zum vereinbarten Termin Zutritt. Sollten Sie den Termin nicht wahrnehmen können, bitten wir um rechtzeitige Benachrichtigung."
@@ -212,7 +233,7 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
     # Standard
     subject = "Mitteilung Ihrer Hausverwaltung"
     body = (
-        f"Sehr geehrte(r) Frau/Herr {recipient_name},\n\n"
+        f"{sal_greeting},\n\n"
         f"wir wenden uns heute bezüglich Ihres Mietverhältnisses ({unit_str}) an Sie.\n\n"
         f"{user_prompt}\n\n"
         f"Bei Rückfragen stehen wir Ihnen jederzeit gerne zur Verfügung."
@@ -363,7 +384,7 @@ def handle_agent_request(user_prompt: str, model: str = "llama3") -> Dict[str, A
                 "data": []
             }
         
-        tenant_summary = ", ".join([f"**{t['first_name']} {t['last_name']}** ({t['unit_number']})" for t in tenants])
+        tenant_summary = ", ".join([f"**{t.get('salutation', 'Herr')} {t['first_name']} {t['last_name']}** ({t['unit_number']}, {t.get('price_per_sqm', 0.0):.2f} €/m²)" for t in tenants])
         return {
             "success": True,
             "message": (
@@ -465,9 +486,11 @@ def handle_agent_request(user_prompt: str, model: str = "llama3") -> Dict[str, A
         
         msg = f"### 👥 Aktuelle Mieter im Objekt ({len(tenants)} aktiv):\n\n"
         for idx, t in enumerate(tenants, 1):
-            msg += f"{idx}. **{t['first_name']} {t['last_name']}**\n"
+            sal = t.get("salutation", "Herr")
+            price_sqm = t.get("price_per_sqm", 0.0)
+            msg += f"{idx}. **{sal} {t['first_name']} {t['last_name']}**\n"
             msg += f"   - 🚪 **Wohnung:** {t['unit_number']} ({t['area_sqm']:.1f} m²)\n"
-            msg += f"   - 💶 **Kaltmiete:** {t['cold_rent']:.2f} € | **NK-Vorauszahlung:** {t['utility_advance']:.2f} €\n"
+            msg += f"   - 💶 **Kaltmiete:** {t['cold_rent']:.2f} € ({price_sqm:.2f} €/m²) | **NK-Vorauszahlung:** {t['utility_advance']:.2f} €\n"
             msg += f"   - 📅 **Mietbeginn:** {t['lease_start']}\n"
             if t.get("phone"):
                 msg += f"   - 📞 **Telefon:** {t['phone']}\n"
@@ -492,14 +515,18 @@ def handle_agent_request(user_prompt: str, model: str = "llama3") -> Dict[str, A
                 "success": True,
                 "message": (
                     "Ja, sehr gerne! Um einen neuen Mieter anzulegen, nenne mir bitte folgende Daten:\n\n"
-                    "- **Name:** z. B. *Sabine Meier*\n"
+                    "- **Anrede & Name:** z. B. *Frau Sabine Meier* oder *Herr Peter Müller*\n"
                     f"- **Wohnung:** (Verfügbar: *{unit_list}*)\n"
                     "- **Kaltmiete & Nebenkostenvorauszahlung:** z. B. *850 € Kaltmiete, 200 € NK*\n"
                     "- **Mietbeginn:** z. B. *01.05.2025*\n\n"
-                    "💡 *Beispiel-Eingabe:* `Füge Sabine Meier hinzu für Wohnung 2, Kaltmiete 850, NK 200 ab 01.05.2025`"
+                    "💡 *Beispiel-Eingabe:* `Füge Frau Sabine Meier hinzu für Wohnung 2, Kaltmiete 850, NK 200 ab 01.05.2025`"
                 ),
                 "data": None
             }
+
+        salutation = intent.get("salutation")
+        if not salutation:
+            salutation = "Frau" if any(fn in f"{first_name} {user_prompt}".lower() for fn in ["frau", "sabine", "laura", "anna", "maria", "sarah", "julia", "lisa"]) else "Herr"
 
         cold_rent = float(intent.get("cold_rent") or 0.0)
         utility_advance = float(intent.get("utility_advance") or 0.0)
@@ -510,6 +537,7 @@ def handle_agent_request(user_prompt: str, model: str = "llama3") -> Dict[str, A
             res = add_new_tenant(
                 first_name=first_name,
                 last_name=last_name,
+                salutation=salutation,
                 unit_search=unit_number,
                 cold_rent=cold_rent,
                 utility_advance=utility_advance,
@@ -518,7 +546,8 @@ def handle_agent_request(user_prompt: str, model: str = "llama3") -> Dict[str, A
             return {
                 "success": True,
                 "message": (
-                    f"✅ **Mieter {first_name} {last_name} wurde erfolgreich angelegt!**\n\n"
+                    f"✅ **Mieter {salutation} {first_name} {last_name} wurde erfolgreich angelegt!**\n\n"
+                    f"- **Anrede:** {salutation}\n"
                     f"- **Kaltmiete:** {cold_rent:.2f} €\n"
                     f"- **NK-Vorauszahlung:** {utility_advance:.2f} €\n"
                     f"- **Mietbeginn:** {lease_start}\n\n"

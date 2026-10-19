@@ -42,21 +42,21 @@ def seed():
     # 3. Mieter anlegen
     # Mieter 1: Max Mustermann
     t1_id = execute_db("""
-        INSERT INTO tenants (unit_id, first_name, last_name, email, phone, lease_start, cold_rent, utility_advance, is_active)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
-    """, (u1_id, "Max", "Mustermann", "max.mustermann@example.de", "+49 170 1234567", "2023-01-01", 950.00, 220.00, 1))
+        INSERT INTO tenants (unit_id, salutation, first_name, last_name, email, phone, lease_start, cold_rent, utility_advance, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    """, (u1_id, "Herr", "Max", "Mustermann", "max.mustermann@example.de", "+49 170 1234567", "2023-01-01", 950.00, 220.00, 1))
 
     # Mieter 2: Laura Schmidt
     t2_id = execute_db("""
-        INSERT INTO tenants (unit_id, first_name, last_name, email, phone, lease_start, cold_rent, utility_advance, is_active)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
-    """, (u2_id, "Laura", "Schmidt", "laura.schmidt@example.de", "+49 171 7654321", "2022-05-01", 1250.00, 280.00, 1))
+        INSERT INTO tenants (unit_id, salutation, first_name, last_name, email, phone, lease_start, cold_rent, utility_advance, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    """, (u2_id, "Frau", "Laura", "Schmidt", "laura.schmidt@example.de", "+49 171 7654321", "2022-05-01", 1250.00, 280.00, 1))
 
     # Mieter 3: Jonas Weber
     t3_id = execute_db("""
-        INSERT INTO tenants (unit_id, first_name, last_name, email, phone, lease_start, cold_rent, utility_advance, is_active)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
-    """, (u3_id, "Jonas", "Weber", "jonas.weber@example.de", "+49 172 9876543", "2024-01-01", 750.00, 180.00, 1))
+        INSERT INTO tenants (unit_id, salutation, first_name, last_name, email, phone, lease_start, cold_rent, utility_advance, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    """, (u3_id, "Herr", "Jonas", "Weber", "jonas.weber@example.de", "+49 172 9876543", "2024-01-01", 750.00, 180.00, 1))
 
     # 4. Betriebskosten für das Abrechnungsjahr 2025
     expenses = [
