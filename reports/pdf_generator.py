@@ -47,7 +47,19 @@ def generate_utility_bill_pdf(bill_data: Dict[str, Any], custom_message: str = "
     elements = []
 
     # 1. Absenderzeile (Fensterkuvert-Zeile nach DIN)
-    sender_line = f"Immobilienverwaltung {tenant['property_name']} · {tenant['street']} · {tenant['zip_code']} {tenant['city']}"
+    from database.settings import get_all_settings
+    settings = get_all_settings()
+    landlord_name = settings.get("landlord_name", f"Immobilienverwaltung {tenant.get('property_name', '')}")
+    landlord_street = settings.get("landlord_street", tenant.get("street", ""))
+    landlord_zip = settings.get("landlord_zip", tenant.get("zip_code", ""))
+    landlord_city = settings.get("landlord_city", tenant.get("city", ""))
+    landlord_iban = settings.get("landlord_iban", "")
+    landlord_bank = settings.get("landlord_bank_name", "")
+    closing_phrase = settings.get("default_closing_phrase", "Mit freundlichen Grüßen")
+    signature_title = settings.get("default_signature_title", landlord_name)
+    deadline_days = settings.get("default_payment_deadline_days", "30")
+
+    sender_line = f"{landlord_name} · {landlord_street} · {landlord_zip} {landlord_city}"
     elements.append(Paragraph(sender_line, style_sender))
     elements.append(Spacer(1, 0.5 * cm))
 
@@ -156,7 +168,8 @@ def generate_utility_bill_pdf(bill_data: Dict[str, Any], custom_message: str = "
 
     # 6. Schlusssatz & Grußformel (DIN 5008: ohne Komma, 3 Leerzeilen für Unterschrift)
     if balance > 0:
-        conclusion = f"Wir bitten Sie höflich, den Nachzahlungsbetrag in Höhe von <b>{balance:.2f} €</b> innerhalb von 30 Tagen auf das bekannte Mietkonto zu überweisen."
+        bank_info = f" auf das Mietkonto ({landlord_iban}, {landlord_bank})" if landlord_iban else " auf das bekannte Mietkonto"
+        conclusion = f"Wir bitten Sie höflich, den Nachzahlungsbetrag in Höhe von <b>{balance:.2f} €</b> innerhalb von {deadline_days} Tagen{bank_info} zu überweisen."
     elif balance < 0:
         conclusion = f"Das Guthaben in Höhe von <b>{abs(balance):.2f} €</b> wird mit Ihrer nächsten Mietzahlung verrechnet oder auf Ihr hinterlegtes Bankkonto überwiesen."
     else:
@@ -164,7 +177,7 @@ def generate_utility_bill_pdf(bill_data: Dict[str, Any], custom_message: str = "
 
     elements.append(Paragraph(conclusion, style_normal))
     elements.append(Spacer(1, 0.5 * cm))
-    elements.append(Paragraph("Mit freundlichen Grüßen<br/><br/><br/><b>Ihre Hausverwaltung</b>", style_normal))
+    elements.append(Paragraph(f"{closing_phrase}<br/><br/><br/><b>{signature_title}</b>", style_normal))
 
     doc.build(elements)
     return pdf_path
@@ -174,25 +187,31 @@ def generate_formal_letter_pdf(
     subject: str,
     letter_text: str,
     address_line: str = "",
-    sender_name: str = "Hausverwaltung Sonnenhang",
-    property_name: str = "Wohnanlage Sonnenhang",
-    sender_street: str = "Lindenstraße 14",
-    sender_city: str = "10115 Berlin",
-    sender_phone: str = "+49 30 12345678",
-    sender_email: str = "verwaltung@sonnenhang.de"
+    sender_name: Optional[str] = None,
+    property_name: Optional[str] = None,
+    sender_street: Optional[str] = None,
+    sender_city: Optional[str] = None,
+    sender_phone: Optional[str] = None,
+    sender_email: Optional[str] = None,
+    sign_person: Optional[str] = None
 ) -> str:
     """
-    Erstellt ein formelles Brief-PDF nach DIN 5008:2020 Form B:
-    - Seitenränder: Oben 4,5 cm, Links 2,5 cm, Unten 2,5 cm, Rechts 2,0 cm
-    - Anschriftfeld: max. 8,5 cm breit (Fensterumschlag DIN lang)
-    - Rücksendeangabe: 8 pt (unterstrichen)
-    - Eigene Adresse & Datum: rechtsbündig
-    - Betreff: 2 Zeilen unter dem Datum, fett, ohne vorangestelltes Wort 'Betreff'
-    - Textformatierung: 11 pt, einfacher Zeilenabstand, keine Erstzeileneinrückung, Leerzeile zwischen Absätzen
-    - Grußformel: nach einer Leerzeile, OHNE Komma ('Mit freundlichen Grüßen'), 3 Leerzeilen für Unterschrift
+    Erstellt ein formelles Brief-PDF nach DIN 5008:2020 Form B.
+    Nutzt standardmäßig die in den Einstellungen hinterlegten Vermieterdaten.
     """
     import re
     from reportlab.platypus import KeepTogether
+    from database.settings import get_all_settings
+    settings = get_all_settings()
+
+    sender_name = sender_name or settings.get("landlord_name", "Hausverwaltung Sonnenhang")
+    property_name = property_name or settings.get("landlord_name", "Wohnanlage Sonnenhang")
+    sender_street = sender_street or settings.get("landlord_street", "Lindenstraße 14")
+    sender_city = sender_city or f"{settings.get('landlord_zip', '10115')} {settings.get('landlord_city', 'Berlin')}"
+    sender_phone = sender_phone or settings.get("landlord_phone", "+49 30 12345678")
+    sender_email = sender_email or settings.get("landlord_email", "verwaltung@sonnenhang.de")
+    closing_phrase = settings.get("default_closing_phrase", "Mit freundlichen Grüßen")
+    sign_title = sign_person or settings.get("landlord_contact_person") or settings.get("default_signature_title", sender_name)
 
     os.makedirs(REPORTS_DIR, exist_ok=True)
     
@@ -334,9 +353,9 @@ def generate_formal_letter_pdf(
     # 4. Grußformel: nach einer Leerzeile, OHNE Komma, danach 3 Leerzeilen für Unterschrift
     closing_elements = [
         Spacer(1, 11 * pt),
-        Paragraph("Mit freundlichen Grüßen", style_body),
+        Paragraph(closing_phrase, style_body),
         Spacer(1, 33 * pt),  # 3 Leerzeilen für handschriftliche Unterschrift
-        Paragraph(f"<b>{sender_name}</b>", style_body)
+        Paragraph(f"<b>{sign_title}</b>", style_body)
     ]
     elements.append(KeepTogether(closing_elements))
 

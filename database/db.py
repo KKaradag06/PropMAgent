@@ -27,6 +27,8 @@ def init_db() -> None:
         # Automatisch korrigieren falls Laura Schmidt noch Herr hat
         conn.execute("UPDATE tenants SET salutation = 'Frau' WHERE first_name = 'Laura' OR last_name = 'Schmidt';")
         conn.commit()
+    from database.settings import init_settings
+    init_settings()
 
 def query_db(query: str, args: tuple = ()) -> List[Dict[str, Any]]:
     """Führt eine SELECT-Abfrage aus und gibt eine Liste von Dictionaries zurück."""

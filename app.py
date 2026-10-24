@@ -22,6 +22,16 @@ from agent.tools import (
     get_annual_utility_statements,
     create_utility_statement_for_tenant
 )
+from database.settings import (
+    init_settings,
+    get_all_settings,
+    get_setting,
+    set_setting,
+    save_settings,
+    reset_settings_to_default,
+    check_ollama_status,
+    DEFAULT_SETTINGS
+)
 
 # Streamlit Page Config
 st.set_page_config(
@@ -33,6 +43,7 @@ st.set_page_config(
 
 # Datenbank initialisieren & ggf. Beispieldaten laden
 init_db()
+init_settings()
 existing_props = query_db("SELECT COUNT(*) as cnt FROM properties;")
 if not existing_props or existing_props[0]["cnt"] == 0:
     seed()
@@ -121,13 +132,320 @@ with st.sidebar:
         ["💬 KI-Assistent & Abrechnung", "👥 Mieter & Einheiten", "📊 Betriebskosten & Finanzen"],
         index=0
     )
-    
+
+    current_settings = get_all_settings()
+    model_name = current_settings.get("ollama_model", "llama3")
     st.markdown("---")
-    st.subheader("⚙️ Einstellungen")
-    model_name = st.selectbox("Ollama Modell", ["llama3", "mistral", "llama3.1"], index=0)
+    st.caption(f"🤖 Aktives Modell: **{model_name}**")
+
+def render_settings_page():
+    # 1. Zurück-Button oben links
+    col_back, col_back_info = st.columns([0.18, 0.82])
+    with col_back:
+        if st.button("Zurück", icon=":material/arrow_back:", key="settings_top_back_btn", use_container_width=True, help="Zurück zum vorherigen Bereich"):
+            st.session_state.show_settings = False
+            st.rerun()
+    with col_back_info:
+        prev_m = st.session_state.get("previous_menu", "Hauptansicht")
+        st.caption(f"Zurück zu: **{prev_m}**")
+
+    st.header("Einstellungen")
+    st.caption("Verwalte das lokale KI-Modell, deine Vermieter- und Kontaktdaten sowie Standardvorgaben für offizielle Schreiben.")
+
+    # 100% Lokal Hinweis
     st.info("🔒 **100% Lokal:** Alle Daten und KI-Anfragen laufen vollständig auf deinem PC.")
 
-if menu == "💬 KI-Assistent & Abrechnung":
+    current_settings = get_all_settings()
+
+    tab_vermieter, tab_ki, tab_briefe, tab_system = st.tabs([
+        "Vermieterdaten & Bankverbindung",
+        "KI & Sprachmodell (Ollama)",
+        "Brief- & Abrechnungsvorgaben",
+        "System & Datensicherung"
+    ])
+
+    with tab_vermieter:
+        st.subheader("Vermieterdaten & Bankverbindung")
+        st.caption("Diese Stammdaten werden als Absender für alle formellen Briefe, Mietanpassungen und Nebenkostenabrechnungen nach DIN 5008 sowie von der KI verwendet.")
+
+        with st.form("form_landlord_settings"):
+            st.markdown("##### 🏢 Absender & Verwaltung")
+            col_lname, col_lperson = st.columns(2)
+            with col_lname:
+                new_lname = st.text_input("Name der Hausverwaltung / Vermieter *", value=current_settings.get("landlord_name", "Hausverwaltung Sonnenhang"))
+            with col_lperson:
+                new_lperson = st.text_input("Ansprechpartner / Unterzeichner (Druckschrift)", value=current_settings.get("landlord_contact_person", "Kirdar Karadag"))
+
+            st.markdown("##### 📍 Anschrift (DIN 5008 Fensterkuvert)")
+            col_lstreet, col_lzip, col_lcity = st.columns([2, 1, 1.5])
+            with col_lstreet:
+                new_lstreet = st.text_input("Straße und Hausnummer *", value=current_settings.get("landlord_street", "Lindenstraße 14"))
+            with col_lzip:
+                new_lzip = st.text_input("Postleitzahl *", value=current_settings.get("landlord_zip", "10115"))
+            with col_lcity:
+                new_lcity = st.text_input("Ort *", value=current_settings.get("landlord_city", "Berlin"))
+
+            st.markdown("##### 📞 Kontaktdaten")
+            col_lphone, col_lemail = st.columns(2)
+            with col_lphone:
+                new_lphone = st.text_input("Telefonnummer", value=current_settings.get("landlord_phone", "+49 30 12345678"))
+            with col_lemail:
+                new_lemail = st.text_input("E-Mail-Adresse", value=current_settings.get("landlord_email", "verwaltung@sonnenhang.de"))
+
+            st.markdown("##### 💳 Bankverbindung für Mietzahlungen & Nachzahlungen")
+            col_lholder, col_lbank = st.columns(2)
+            with col_lholder:
+                new_lholder = st.text_input("Kontoinhaber", value=current_settings.get("landlord_account_holder", current_settings.get("landlord_name", "Hausverwaltung Sonnenhang")))
+            with col_lbank:
+                new_lbank = st.text_input("Kreditinstitut (Bankname)", value=current_settings.get("landlord_bank_name", "Berliner Sparkasse"))
+
+            col_liban, col_lbic, col_ltax = st.columns([2, 1.2, 1.2])
+            with col_liban:
+                new_liban = st.text_input("IBAN", value=current_settings.get("landlord_iban", "DE12 1005 0000 0123 4567 89"))
+            with col_lbic:
+                new_lbic = st.text_input("BIC", value=current_settings.get("landlord_bic", "BELADEB1XXX"))
+            with col_ltax:
+                new_ltax = st.text_input("Steuernummer / USt-IdNr. (optional)", value=current_settings.get("landlord_tax_id", "27/123/45678"))
+
+            save_landlord = st.form_submit_button("Vermieterdaten speichern", type="primary", use_container_width=True)
+            if save_landlord:
+                save_settings({
+                    "landlord_name": new_lname.strip(),
+                    "landlord_contact_person": new_lperson.strip(),
+                    "landlord_street": new_lstreet.strip(),
+                    "landlord_zip": new_lzip.strip(),
+                    "landlord_city": new_lcity.strip(),
+                    "landlord_phone": new_lphone.strip(),
+                    "landlord_email": new_lemail.strip(),
+                    "landlord_account_holder": new_lholder.strip(),
+                    "landlord_bank_name": new_lbank.strip(),
+                    "landlord_iban": new_liban.strip(),
+                    "landlord_bic": new_lbic.strip(),
+                    "landlord_tax_id": new_ltax.strip()
+                })
+                st.success("Vermieterdaten wurden erfolgreich gespeichert! Alle künftigen Briefe und Abrechnungen nutzen diese Angaben.")
+                st.rerun()
+
+        # Vorschau-Box
+        with st.expander("Vorschau: So erscheint dein Briefkopf auf Schreiben (DIN 5008)", expanded=False):
+            v_name = current_settings.get("landlord_name", "Hausverwaltung Sonnenhang")
+            v_str = current_settings.get("landlord_street", "Lindenstraße 14")
+            v_city = f"{current_settings.get('landlord_zip', '10115')} {current_settings.get('landlord_city', 'Berlin')}"
+            v_phone = current_settings.get("landlord_phone", "")
+            v_email = current_settings.get("landlord_email", "")
+            v_iban = current_settings.get("landlord_iban", "")
+            v_bank = current_settings.get("landlord_bank_name", "")
+            
+            st.markdown(f"""
+            <div style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 20px; font-family: Arial, sans-serif; color: #0f172a;">
+                <div style="font-size: 8pt; text-decoration: underline; color: #64748b; margin-bottom: 12px;">
+                    {v_name} · {v_str} · {v_city}
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                    <div style="font-size: 10pt; line-height: 1.4;">
+                        <b>[Mieter Name]</b><br/>
+                        [Mieter Straße]<br/>
+                        [Mieter PLZ Ort]
+                    </div>
+                    <div style="text-align: right; font-size: 9pt; line-height: 1.4; color: #334155;">
+                        <b>{v_name}</b><br/>
+                        {v_str}<br/>
+                        {v_city}<br/>
+                        Tel.: {v_phone}<br/>
+                        E-Mail: {v_email}<br/>
+                        <span style="font-size: 8pt; color: #64748b;">Bank: {v_bank} | IBAN: {v_iban}</span>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    with tab_ki:
+        st.subheader("Lokales Sprachmodell & Ollama-Verbindung")
+        st.caption("PropMAgent kommuniziert direkt mit deinem lokalen Ollama-Server. Es werden zu keinem Zeitpunkt Daten ins Internet übertragen.")
+
+        ollama_status = check_ollama_status(current_settings.get("ollama_url", "http://localhost:11434"))
+        
+        col_stat_info, col_stat_btn = st.columns([3, 1.2])
+        with col_stat_info:
+            if ollama_status["online"]:
+                st.success(f"🟢 **Ollama aktiv:** {ollama_status['message']}")
+            else:
+                st.warning(f"🟡 **Ollama Status:** {ollama_status['message']}. Bitte stelle sicher, dass die Ollama-Anwendung läuft.")
+        with col_stat_btn:
+            st.write("")
+            if st.button("Verbindung prüfen", icon=":material/refresh:", use_container_width=True, key="btn_check_ollama"):
+                st.rerun()
+
+        with st.form("form_ai_settings"):
+            known_models = ["llama3", "llama3.1", "mistral", "qwen2.5", "phi3"]
+            if ollama_status.get("models"):
+                for m in ollama_status["models"]:
+                    if m not in known_models:
+                        known_models.append(m)
+            
+            cur_model = current_settings.get("ollama_model", "llama3")
+            if cur_model not in known_models:
+                known_models.insert(0, cur_model)
+                
+            col_m_sel, col_m_custom = st.columns([2, 1.5])
+            with col_m_sel:
+                selected_model = st.selectbox(
+                    "Ollama Modell auswählen *",
+                    options=known_models,
+                    index=known_models.index(cur_model) if cur_model in known_models else 0,
+                    help="Empfohlen: llama3 oder llama3.1 für präzise juristische Formulierungen."
+                )
+            with col_m_custom:
+                custom_model_input = st.text_input(
+                    "Oder benutzerdefiniertes Modell",
+                    placeholder="z. B. llama3:8b-instruct-q8_0",
+                    help="Falls du ein spezifisches Quantisierungs-Tag oder Feinabstimmung nutzt."
+                )
+
+            col_url, col_temp = st.columns([2.5, 1.5])
+            with col_url:
+                new_url = st.text_input(
+                    "Ollama API-Endpunkt (Server-URL) *",
+                    value=current_settings.get("ollama_url", "http://localhost:11434"),
+                    help="Standard: http://localhost:11434. Ändere dies nur, wenn Ollama auf einem anderen Port oder in WSL läuft."
+                )
+            with col_temp:
+                try:
+                    cur_temp = float(current_settings.get("ai_temperature", "0.1"))
+                except Exception:
+                    cur_temp = 0.1
+                new_temp = st.slider(
+                    "Kreativität / Temperatur",
+                    min_value=0.0,
+                    max_value=0.7,
+                    value=cur_temp,
+                    step=0.05,
+                    help="0.0 bis 0.1 liefert maximale Rechtssicherheit und Konsistenz bei Fristen und Beträgen."
+                )
+
+            save_ai = st.form_submit_button("KI-Einstellungen speichern", type="primary", use_container_width=True)
+            if save_ai:
+                final_model = custom_model_input.strip() if custom_model_input.strip() else selected_model
+                save_settings({
+                    "ollama_model": final_model,
+                    "ollama_url": new_url.strip(),
+                    "ai_temperature": str(new_temp)
+                })
+                st.success(f"KI-Konfiguration gespeichert! Aktives Modell: **{final_model}**")
+                st.rerun()
+
+    with tab_briefe:
+        st.subheader("Vorgaben für Briefe, Fristen & Abrechnungen")
+        st.caption("Passe Standardfristen und Formulierungen an, die in allen Schreiben und Nebenkostenabrechnungen automatisch herangezogen werden.")
+
+        with st.form("form_letter_defaults"):
+            st.markdown("##### ⏱️ Gesetzliche Fristen & Zahlungsziele")
+            col_d_pay, col_d_obj = st.columns(2)
+            with col_d_pay:
+                new_pay_days = st.number_input(
+                    "Standard-Zahlungsfrist für Mahnungen & Nachzahlungen (Tage)",
+                    min_value=3,
+                    max_value=90,
+                    value=int(current_settings.get("default_payment_deadline_days", "14")),
+                    step=1,
+                    help="Frist, die in Zahlungserinnerungen und Nachzahlungsaufforderungen gesetzt wird (z. B. 14 Tage)."
+                )
+            with col_d_obj:
+                new_obj_days = st.number_input(
+                    "Einwendungsfrist für Nebenkostenabrechnungen (Tage)",
+                    min_value=14,
+                    max_value=365,
+                    value=int(current_settings.get("default_utility_objection_days", "30")),
+                    step=1,
+                    help="Frist für Mieter zur Prüfung der Nebenkostenabrechnung (Standard: 30 Tage)."
+                )
+
+            st.markdown("##### ✍️ Grußformel & Unterschriftenzeile (DIN 5008)")
+            col_closing, col_sig_title = st.columns(2)
+            with col_closing:
+                closing_opts = ["Mit freundlichen Grüßen", "Freundliche Grüße", "Mit besten Grüßen"]
+                cur_closing = current_settings.get("default_closing_phrase", "Mit freundlichen Grüßen")
+                idx_closing = closing_opts.index(cur_closing) if cur_closing in closing_opts else 0
+                new_closing = st.selectbox("Standard-Grußformel", closing_opts, index=idx_closing)
+            with col_sig_title:
+                new_sig_title = st.text_input(
+                    "Standard-Unterschriftenbezeichnung",
+                    value=current_settings.get("default_signature_title", "Ihre Hausverwaltung"),
+                    help="Wird unter den 3 Leerzeilen für die handschriftliche Unterschrift gedruckt."
+                )
+
+            st.markdown("##### 📄 Layout & Optionen")
+            inc_bank = st.checkbox(
+                "Bankverbindung in offiziellen Zahlungsaufforderungen und Briefen automatisch auflisten",
+                value=current_settings.get("letter_include_bank_details", "true") == "true"
+            )
+
+            save_letters = st.form_submit_button("Vorgaben speichern", type="primary", use_container_width=True)
+            if save_letters:
+                save_settings({
+                    "default_payment_deadline_days": str(new_pay_days),
+                    "default_utility_objection_days": str(new_obj_days),
+                    "default_closing_phrase": new_closing,
+                    "default_signature_title": new_sig_title.strip(),
+                    "letter_include_bank_details": "true" if inc_bank else "false"
+                })
+                st.success("Brief- und Abrechnungsvorgaben erfolgreich aktualisiert!")
+                st.rerun()
+
+    with tab_system:
+        st.subheader("Systemstatus, Datenbank & Datensicherung")
+        st.caption("Prüfe den Zustand deiner lokalen Datenbank und lade jederzeit ein vollständiges Backup herunter.")
+
+        db_tenants = query_db("SELECT COUNT(*) as c FROM tenants;")[0]["c"]
+        db_units = query_db("SELECT COUNT(*) as c FROM units;")[0]["c"]
+        db_props = query_db("SELECT COUNT(*) as c FROM properties;")[0]["c"]
+        db_expenses = query_db("SELECT COUNT(*) as c FROM expenses;")[0]["c"]
+
+        col_s1, col_s2, col_s3, col_s4 = st.columns(4)
+        col_s1.metric("Liegenschaften", db_props)
+        col_s2.metric("Wohneinheiten", db_units)
+        col_s3.metric("Erfasste Mieter", db_tenants)
+        col_s4.metric("Kostenbelege", db_expenses)
+
+        st.markdown("---")
+        st.markdown("##### 💾 Lokales Datenbank-Backup herunterladen")
+        st.write("Deine gesamte Datenbank (`prop_management.db`) enthält alle Mieter, Verträge, Zahlungen und Betriebskosten. Sichere sie mit einem Klick:")
+
+        from database.db import DB_PATH
+        if os.path.exists(DB_PATH):
+            with open(DB_PATH, "rb") as db_file:
+                db_bytes = db_file.read()
+            backup_filename = f"prop_management_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+            st.download_button(
+                label="Datenbank-Backup herunterladen (.db)",
+                data=db_bytes,
+                file_name=backup_filename,
+                mime="application/x-sqlite3",
+                icon=":material/download:",
+                use_container_width=True
+            )
+
+        st.markdown("---")
+        st.markdown("##### 🔄 Auf Werkseinstellungen zurücksetzen")
+        st.write("Setzt ausschließlich die Einstellungen (Vermieterdaten, Fristen, Modell) auf die Standardwerte zurück. Deine Mieterdaten und Buchungen bleiben unberührt.")
+        
+        with st.popover("Werkseinstellungen wiederherstellen...", use_container_width=True):
+            st.warning("Möchtest du alle Einstellungen wirklich auf die Standardwerte zurücksetzen?")
+            if st.button("Ja, Einstellungen zurücksetzen", type="primary", use_container_width=True):
+                reset_settings_to_default()
+                st.success("Einstellungen wurden auf Standardwerte zurückgesetzt.")
+                st.rerun()
+
+# Automatisch Einstellungen verlassen, wenn der Nutzer in der Sidebar navigiert
+if "last_sidebar_menu" not in st.session_state:
+    st.session_state["last_sidebar_menu"] = menu
+if st.session_state["last_sidebar_menu"] != menu:
+    st.session_state["show_settings"] = False
+    st.session_state["last_sidebar_menu"] = menu
+
+if st.session_state.get("show_settings", False):
+    render_settings_page()
+elif menu == "💬 KI-Assistent & Abrechnung":
     should_scroll = st.session_state.get("scroll_to_chat", False)
     if should_scroll:
         del st.session_state["scroll_to_chat"]
@@ -135,8 +453,16 @@ if menu == "💬 KI-Assistent & Abrechnung":
     def register_download(filename: str):
         st.session_state[f"downloaded_{filename}"] = True
 
-    st.header("Intelligenter Verwaltungsassistent")
-    st.write("Erstelle Nebenkostenabrechnungen, stelle Fragen zu Mietern oder lass dir Auswertungen anzeigen.")
+    col_hdr_main, col_hdr_gear = st.columns([0.84, 0.16])
+    with col_hdr_gear:
+        st.write("")
+        if st.button("Einstellungen", icon=":material/settings:", key="btn_gear_assistant", use_container_width=True, help="Einstellungen, Vermieterdaten & Modell öffnen"):
+            st.session_state["previous_menu"] = "💬 KI-Assistent & Abrechnung"
+            st.session_state["show_settings"] = True
+            st.rerun()
+    with col_hdr_main:
+        st.header("Intelligenter Verwaltungsassistent")
+        st.write("Erstelle Nebenkostenabrechnungen, stelle Fragen zu Mietern oder lass dir Auswertungen anzeigen.")
 
     tenants = get_all_tenants()
     tenant_options = {
@@ -603,7 +929,16 @@ if menu == "💬 KI-Assistent & Abrechnung":
 
 # TAB 2: Mieter & Einheiten
 elif menu == "👥 Mieter & Einheiten":
-    st.header("👥 Mieter- und Einheitenverwaltung")
+    col_hdr_main, col_hdr_gear = st.columns([0.84, 0.16])
+    with col_hdr_gear:
+        st.write("")
+        if st.button("Einstellungen", icon=":material/settings:", key="btn_gear_tenants", use_container_width=True, help="Einstellungen, Vermieterdaten & Modell öffnen"):
+            st.session_state["previous_menu"] = "👥 Mieter & Einheiten"
+            st.session_state["show_settings"] = True
+            st.rerun()
+    with col_hdr_main:
+        st.header("Mieter- und Einheitenverwaltung")
+        st.write("Verwalte alle Mietverhältnisse, Wohnungszuweisungen, Mietverträge und Kontaktdaten.")
     
     tenants = get_all_tenants()
     all_units = get_all_units()
@@ -804,8 +1139,16 @@ elif menu == "👥 Mieter & Einheiten":
 
 # TAB 3: Betriebskosten & Finanzen
 elif menu == "📊 Betriebskosten & Finanzen":
-    st.header("Betriebskosten & Finanzen")
-    st.caption("Umfassende Verwaltung der umlagefähigen Betriebskosten (BetrKV), mehrjähriger Kostenaufstellungen und der Jahresabrechnungen aller Mieter.")
+    col_hdr_main, col_hdr_gear = st.columns([0.84, 0.16])
+    with col_hdr_gear:
+        st.write("")
+        if st.button("Einstellungen", icon=":material/settings:", key="btn_gear_finances", use_container_width=True, help="Einstellungen, Vermieterdaten & Modell öffnen"):
+            st.session_state["previous_menu"] = "📊 Betriebskosten & Finanzen"
+            st.session_state["show_settings"] = True
+            st.rerun()
+    with col_hdr_main:
+        st.header("Betriebskosten & Finanzen")
+        st.caption("Umfassende Verwaltung der umlagefähigen Betriebskosten (BetrKV), mehrjähriger Kostenaufstellungen und der Jahresabrechnungen aller Mieter.")
 
     available_years = get_available_expense_years()
     current_year = 2026

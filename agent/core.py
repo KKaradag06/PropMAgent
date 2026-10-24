@@ -13,6 +13,7 @@ from agent.tools import (
 )
 from reports.pdf_generator import generate_formal_letter_pdf
 from reports.docx_generator import generate_formal_letter_docx
+from database.settings import get_all_settings, get_setting
 
 SYSTEM_PROMPT = """Du bist PropMAgent, ein intelligenter deutscher KI-Assistent für Immobilienverwaltung und Vermietung.
 Deine Aufgabe ist es, Nutzeranfragen zu analysieren und strukturierte Aktionen auszuführen.
@@ -99,8 +100,36 @@ def draft_letter_with_ai(
     
     tenant_context = "\n".join(context_lines)
 
+    settings = get_all_settings()
+    landlord_name = settings.get("landlord_name", "Hausverwaltung Sonnenhang")
+    landlord_contact = settings.get("landlord_contact_person", "")
+    landlord_street = settings.get("landlord_street", "Lindenstraße 14")
+    landlord_zip = settings.get("landlord_zip", "10115")
+    landlord_city = settings.get("landlord_city", "Berlin")
+    landlord_phone = settings.get("landlord_phone", "+49 30 12345678")
+    landlord_email = settings.get("landlord_email", "verwaltung@sonnenhang.de")
+    landlord_iban = settings.get("landlord_iban", "")
+    landlord_bic = settings.get("landlord_bic", "")
+    landlord_bank = settings.get("landlord_bank_name", "")
+    landlord_holder = settings.get("landlord_account_holder", landlord_name)
+    closing_phrase = settings.get("default_closing_phrase", "Mit freundlichen Grüßen")
+    signature_title = settings.get("default_signature_title", landlord_name)
+    def_deadline = settings.get("default_payment_deadline_days", "14")
+
+    landlord_context = f"""KONTEXT DES ABSENDERS / VERMIETERS:
+- Name / Hausverwaltung: {landlord_name}
+- Ansprechpartner: {landlord_contact}
+- Anschrift: {landlord_street}, {landlord_zip} {landlord_city}
+- Kontakt: Telefon {landlord_phone}, E-Mail {landlord_email}
+- Bankverbindung: IBAN {landlord_iban}, BIC {landlord_bic}, Kreditinstitut {landlord_bank}, Kontoinhaber {landlord_holder}
+- Standard-Zahlungsfrist: {def_deadline} Tage
+- Grußformel: {closing_phrase}
+- Unterschrift: {signature_title}"""
+
     system_instruction = f"""Du bist ein erfahrener deutscher Hausverwalter und Experte für deutsches Mietrecht (BGB).
 Deine Aufgabe ist es, anhand der Nutzeranweisung ein professionelles, rechtssicheres und druckfertiges Schreiben an den Mieter zu verfassen.
+
+{landlord_context}
 
 KONTEXT DES MIETERS:
 {tenant_context}
@@ -192,6 +221,14 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
     from datetime import timedelta
     prompt_lower = user_prompt.lower()
     
+    settings = get_all_settings()
+    landlord_name = settings.get("landlord_name", "Hausverwaltung Sonnenhang")
+    landlord_holder = settings.get("landlord_account_holder", landlord_name)
+    landlord_iban = settings.get("landlord_iban", "DE12 1005 0000 0123 4567 89")
+    landlord_bic = settings.get("landlord_bic", "BELADEB1XXX")
+    landlord_bank = settings.get("landlord_bank_name", "Berliner Sparkasse")
+    default_days = int(settings.get("default_payment_deadline_days", "14"))
+    
     salutation = (tenant_info.get("salutation") if tenant_info else "") or ""
     if not salutation:
         salutation = "Frau" if any(fn in recipient_name.lower() for fn in ["laura", "sabine", "anna", "maria", "sarah", "julia", "lisa"]) else "Herr"
@@ -252,8 +289,10 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
             f"Sicherlich handelt es sich hierbei nur um ein vorübergehendes Versehen. Wir bitten Sie daher höflich, den offenen Betrag von {fmt_eur(overdue_amt)} "
             f"innerhalb einer Frist von {days} Tagen (bis spätestens zum {due_date_calc}) auf unser Mietkonto zu überweisen.\n\n"
             f"Bankverbindung für Mietzahlungen:\n"
-            f"• Kontoinhaber: Hausverwaltung\n"
-            f"• IBAN: DE12 1005 0000 0123 4567 89\n"
+            f"• Kontoinhaber: {landlord_holder}\n"
+            f"• IBAN: {landlord_iban}\n"
+            f"• BIC: {landlord_bic}\n"
+            f"• Kreditinstitut: {landlord_bank}\n"
             f"• Verwendungszweck: Mietrückstand {unit_label} - {recipient_name}\n\n"
             f"Sollten Sie den fälligen Betrag in den letzten Tagen bereits angewiesen haben, betrachten Sie diese Erinnerung bitte als gegenstandslos.\n\n"
             f"Für Rückfragen stehen wir Ihnen jederzeit gern zur Verfügung."
@@ -451,9 +490,10 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
             f"{sal_greeting},\n\n"
             f"wir möchten Sie darüber informieren, dass sich unsere Bankverbindung für die Überweisung der monatlichen Miete ({unit_str}) ändert.\n\n"
             f"Bitte richten Sie Ihre Zahlungen ab dem kommenden Monatsersten an folgendes Konto:\n"
-            f"• Kontoinhaber: Hausverwaltung Sonnenhang\n"
-            f"• IBAN: DE12 1005 0000 0123 4567 89\n"
-            f"• BIC: BELADEB1XXX\n"
+            f"• Kontoinhaber: {landlord_holder}\n"
+            f"• IBAN: {landlord_iban}\n"
+            f"• BIC: {landlord_bic}\n"
+            f"• Kreditinstitut: {landlord_bank}\n"
             f"• Verwendungszweck: Miete {unit_str} - {recipient_name}\n\n"
             f"Vielen Dank für Ihre Unterstützung."
         )
@@ -660,23 +700,25 @@ def handle_agent_request(user_prompt: str, model: str = "llama3") -> Dict[str, A
         # Mieter in Datenbank nachschlagen
         db_tenant = find_tenant_by_name(raw_name)
 
+        settings = get_all_settings()
+        sender_name = settings.get("landlord_name", "Hausverwaltung Sonnenhang")
+        sender_street = settings.get("landlord_street", "Lindenstraße 14")
+        sender_city = f"{settings.get('landlord_zip', '10115')} {settings.get('landlord_city', 'Berlin')}".strip()
+        sender_phone = settings.get("landlord_phone", "+49 30 12345678")
+        sender_email = settings.get("landlord_email", "verwaltung@sonnenhang.de")
+        sign_person = settings.get("landlord_contact_person") or settings.get("default_signature_title", sender_name)
+
         if db_tenant:
             full_name = f"{db_tenant['first_name']} {db_tenant['last_name']}"
             unit_info = f"{db_tenant['unit_number']} ({db_tenant['property_name']})"
             addr_line = f"{db_tenant.get('street', 'Lindenstraße 14')}\n{db_tenant.get('zip_code', '10115')} {db_tenant.get('city', 'Berlin')}"
-            prop_name = db_tenant.get("property_name", "Wohnanlage Sonnenhang")
-            sender_street = db_tenant.get("street", "Lindenstraße 14")
-            sender_city = f"{db_tenant.get('zip_code', '10115')} {db_tenant.get('city', 'Berlin')}"
+            prop_name = db_tenant.get("property_name", sender_name)
             note = f"👤 *Mieter aus deiner Datenbank zugeordnet: {full_name} ({unit_info})*"
         else:
             full_name = raw_name
             addr_line = "Musterstraße 1\n10115 Berlin"
-            prop_name = "Wohnanlage Sonnenhang"
-            sender_street = "Lindenstraße 14"
-            sender_city = "10115 Berlin"
+            prop_name = sender_name
             note = f"💡 *Hinweis: '{raw_name}' ist bisher nicht in deiner Mieter-Datenbank hinterlegt. Das Schreiben wurde mit Vorlagendaten für diesen Namen erstellt.*"
-
-        sender_name = "Hausverwaltung Sonnenhang"
 
         # Brief mit KI entwerfen
         letter_content = draft_letter_with_ai(
@@ -697,7 +739,10 @@ def handle_agent_request(user_prompt: str, model: str = "llama3") -> Dict[str, A
             sender_name=sender_name,
             property_name=prop_name,
             sender_street=sender_street,
-            sender_city=sender_city
+            sender_city=sender_city,
+            sender_phone=sender_phone,
+            sender_email=sender_email,
+            sign_person=sign_person
         )
 
         # 2. Word / DOCX (auch für LibreOffice ODT) nach DIN 5008:2020 Form B generieren
@@ -709,7 +754,10 @@ def handle_agent_request(user_prompt: str, model: str = "llama3") -> Dict[str, A
             sender_name=sender_name,
             property_name=prop_name,
             sender_street=sender_street,
-            sender_city=sender_city
+            sender_city=sender_city,
+            sender_phone=sender_phone,
+            sender_email=sender_email,
+            sign_person=sign_person
         )
 
         clean_subj = re.sub(r"^(?:Betreff|Subject)\s*:\s*", "", subject, flags=re.IGNORECASE).strip()

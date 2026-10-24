@@ -54,3 +54,8 @@ CREATE TABLE IF NOT EXISTS payments (
     payment_type TEXT DEFAULT 'total', -- 'cold_rent', 'utility_advance', 'total'
     FOREIGN KEY (tenant_id) REFERENCES tenants (id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);

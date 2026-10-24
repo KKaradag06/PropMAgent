@@ -12,23 +12,29 @@ def generate_formal_letter_docx(
     subject: str,
     letter_text: str,
     address_line: str = "",
-    sender_name: str = "Hausverwaltung Sonnenhang",
-    property_name: str = "Wohnanlage Sonnenhang",
-    sender_street: str = "Lindenstraße 14",
-    sender_city: str = "10115 Berlin",
-    sender_phone: str = "+49 30 12345678",
-    sender_email: str = "verwaltung@sonnenhang.de"
+    sender_name: Optional[str] = None,
+    property_name: Optional[str] = None,
+    sender_street: Optional[str] = None,
+    sender_city: Optional[str] = None,
+    sender_phone: Optional[str] = None,
+    sender_email: Optional[str] = None,
+    sign_person: Optional[str] = None
 ) -> str:
     """
-    Erstellt ein formelles DOCX-Word-Dokument nach DIN 5008:2020 Form B:
-    - Seitenränder: Oben 4,5 cm, Links 2,5 cm, Unten 2,5 cm, Rechts 2,0 cm
-    - Anschriftfeld: max. 8,5 cm breit (für DIN-lang Fensterbriefumschläge)
-    - Rücksendeangabe: 8 pt (unterstrichen)
-    - Eigene Adresse & Datum: rechtsbündig
-    - Betreff: 2 Zeilen unter dem Datum, fett, ohne vorangestelltes Wort 'Betreff'
-    - Textformatierung: 11 pt, einfacher Zeilenabstand, keine Erstzeileneinrückung, Leerzeile zwischen Absätzen
-    - Grußformel: nach einer Leerzeile, OHNE Komma ('Mit freundlichen Grüßen'), 3 Leerzeilen für Unterschrift
+    Erstellt ein formelles DOCX-Word-Dokument nach DIN 5008:2020 Form B.
+    Nutzt standardmäßig die in den Einstellungen hinterlegten Vermieterdaten.
     """
+    from database.settings import get_all_settings
+    settings = get_all_settings()
+
+    sender_name = sender_name or settings.get("landlord_name", "Hausverwaltung Sonnenhang")
+    property_name = property_name or settings.get("landlord_name", "Wohnanlage Sonnenhang")
+    sender_street = sender_street or settings.get("landlord_street", "Lindenstraße 14")
+    sender_city = sender_city or f"{settings.get('landlord_zip', '10115')} {settings.get('landlord_city', 'Berlin')}"
+    sender_phone = sender_phone or settings.get("landlord_phone", "+49 30 12345678")
+    sender_email = sender_email or settings.get("landlord_email", "verwaltung@sonnenhang.de")
+    closing_phrase = settings.get("default_closing_phrase", "Mit freundlichen Grüßen")
+    sign_title = sign_person or settings.get("landlord_contact_person") or settings.get("default_signature_title", sender_name)
     os.makedirs(REPORTS_DIR, exist_ok=True)
     clean_name = "".join(c for c in recipient_name if c.isalnum() or c in (" ", "_", "-")).strip().replace(" ", "_")
     today_str = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -145,7 +151,7 @@ def generate_formal_letter_docx(
     p_gruss = doc.add_paragraph()
     p_gruss.paragraph_format.space_before = Pt(11)
     p_gruss.paragraph_format.space_after = Pt(33)  # 3 Leerzeilen für Unterschrift
-    r_gruss = p_gruss.add_run("Mit freundlichen Grüßen")
+    r_gruss = p_gruss.add_run(closing_phrase)
     r_gruss.font.name = "Arial"
     r_gruss.font.size = Pt(11.0)
 
@@ -153,7 +159,7 @@ def generate_formal_letter_docx(
     p_sign = doc.add_paragraph()
     p_sign.paragraph_format.space_before = Pt(0)
     p_sign.paragraph_format.space_after = Pt(0)
-    r_sign = p_sign.add_run(sender_name)
+    r_sign = p_sign.add_run(sign_title)
     r_sign.font.name = "Arial"
     r_sign.font.size = Pt(11.0)
     r_sign.font.bold = True
