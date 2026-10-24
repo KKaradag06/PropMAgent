@@ -9,6 +9,14 @@ from agent.core import handle_agent_request
 from agent.tools import (
     get_all_tenants, 
     get_all_units,
+    get_all_properties,
+    get_property_by_id,
+    update_property_alias,
+    update_property,
+    add_property,
+    get_tenants_by_property,
+    get_units_by_property,
+    add_unit,
     add_new_tenant,
     update_tenant,
     delete_tenant,
@@ -129,7 +137,7 @@ with st.sidebar:
     
     menu = st.radio(
         "Navigation",
-        ["💬 KI-Assistent & Abrechnung", "👥 Mieter & Einheiten", "📊 Betriebskosten & Finanzen"],
+        ["KI-Assistent & Schriftverkehr", "Liegenschaften & Mieter", "Betriebskosten & Finanzen"],
         index=0
     )
 
@@ -445,7 +453,7 @@ if st.session_state["last_sidebar_menu"] != menu:
 
 if st.session_state.get("show_settings", False):
     render_settings_page()
-elif menu == "💬 KI-Assistent & Abrechnung":
+elif menu == "KI-Assistent & Schriftverkehr":
     should_scroll = st.session_state.get("scroll_to_chat", False)
     if should_scroll:
         del st.session_state["scroll_to_chat"]
@@ -457,12 +465,12 @@ elif menu == "💬 KI-Assistent & Abrechnung":
     with col_hdr_gear:
         st.write("")
         if st.button("Einstellungen", icon=":material/settings:", key="btn_gear_assistant", use_container_width=True, help="Einstellungen, Vermieterdaten & Modell öffnen"):
-            st.session_state["previous_menu"] = "💬 KI-Assistent & Abrechnung"
+            st.session_state["previous_menu"] = "KI-Assistent & Schriftverkehr"
             st.session_state["show_settings"] = True
             st.rerun()
     with col_hdr_main:
-        st.header("Intelligenter Verwaltungsassistent")
-        st.write("Erstelle Nebenkostenabrechnungen, stelle Fragen zu Mietern oder lass dir Auswertungen anzeigen.")
+        st.header("KI-Assistent & Schriftverkehr")
+        st.write("Erstelle rechtssichere Anschreiben, Mietanpassungen und Nebenkostenabrechnungen oder stelle Fragen zu Liegenschaften und Mietern.")
 
     tenants = get_all_tenants()
     tenant_options = {
@@ -576,6 +584,45 @@ elif menu == "💬 KI-Assistent & Abrechnung":
     # Strukturierte Vorlagen & Schnellaktionen
     with st.container(border=True):
         st.markdown("**Vorlagen & Schnellaktionen**")
+
+        # 1. Auswahl der Liegenschaft und des Mieters
+        all_props = get_all_properties()
+        prop_options = {}
+        for p in all_props:
+            alias_txt = f" ({p['alias']})" if p.get("alias") else ""
+            p_lbl = f"{p['name']}{alias_txt} · {p['street']}, {p['city']}"
+            prop_options[p_lbl] = p["property_id"]
+        if not prop_options:
+            prop_options = {"Standard-Liegenschaft": 1}
+
+        col_prop_sel, col_tenant_sel = st.columns([1.6, 2.4])
+        with col_prop_sel:
+            selected_prop_label = st.selectbox(
+                "Liegenschaft auswählen",
+                options=list(prop_options.keys()),
+                key="qa_prop_selector"
+            )
+            selected_prop_id = prop_options[selected_prop_label]
+
+        prop_tenants = get_tenants_by_property(selected_prop_id)
+        tenant_options = {}
+        for t in prop_tenants:
+            unit_str = f" · {t['unit_number']}" if t.get("unit_number") else ""
+            sal_str = t.get("salutation", "Herr")
+            t_lbl = f"{t['first_name']} {t['last_name']} ({sal_str}{unit_str})"
+            tenant_options[t_lbl] = f"{t['first_name']} {t['last_name']}"
+
+        if not tenant_options:
+            tenant_options = {"(Keine Mieter in dieser Liegenschaft erfasst)": ""}
+
+        with col_tenant_sel:
+            selected_tenant_label = st.selectbox(
+                "Mieter auswählen (Suche nach Vor- oder Nachname)",
+                options=list(tenant_options.keys()),
+                key="qa_tenant_selector"
+            )
+            tgt_t = tenant_options.get(selected_tenant_label, "")
+
         category = st.segmented_control(
             "Bereich",
             options=["Miete", "Nebenkosten", "Andere"],
@@ -594,10 +641,7 @@ elif menu == "💬 KI-Assistent & Abrechnung":
             )
 
             if sub_action == "Mietanpassung":
-                c_t, c_mode, c_inp, c_btn = st.columns([2.5, 1.8, 2.2, 1.5])
-                with c_t:
-                    sel_t_lbl = st.selectbox("Mieter auswählen", list(tenant_options.keys()), key="act_t_sel_ma")
-                    tgt_t = tenant_options.get(sel_t_lbl, "")
+                c_mode, c_inp, c_btn = st.columns([2, 3, 1.5])
                 with c_mode:
                     adj_mode = st.segmented_control("Art", options=["Erhöhung", "Senkung"], default="Erhöhung", key="act_mode_ma")
                 with c_inp:
@@ -616,10 +660,7 @@ elif menu == "💬 KI-Assistent & Abrechnung":
                             st.rerun()
 
             elif sub_action == "Zahlungserinnerung":
-                c_t, c_amt, c_due, c_btn = st.columns([2, 1.5, 1.5, 1.5])
-                with c_t:
-                    sel_t_lbl = st.selectbox("Mieter auswählen", list(tenant_options.keys()), key="act_t_sel_ze")
-                    tgt_t = tenant_options.get(sel_t_lbl, "")
+                c_amt, c_due, c_btn = st.columns([2.5, 2.5, 1.5])
                 with c_amt:
                     debt_amt = st.text_input("Rückstand", value="80 €", placeholder="z. B. 80 €", key="act_debt_amt")
                 with c_due:
@@ -650,13 +691,10 @@ elif menu == "💬 KI-Assistent & Abrechnung":
                             st.rerun()
 
             elif sub_action == "Mietbescheinigung":
-                c_t, c_btn = st.columns([3.5, 1.5])
-                with c_t:
-                    sel_t_lbl = st.selectbox("Mieter auswählen", list(tenant_options.keys()), key="act_t_sel_mb")
-                    tgt_t = tenant_options.get(sel_t_lbl, "")
+                c_txt, c_btn = st.columns([4.5, 1.5])
+                with c_txt:
+                    st.write(f"Erstellt eine offizielle Miet- und Mietschuldenfreiheitsbescheinigung für **{tgt_t or 'den ausgewählten Mieter'}**.")
                 with c_btn:
-                    st.write("")
-                    st.write("")
                     if st.button("Bescheinigung erstellen", type="primary", use_container_width=True, key="btn_mb"):
                         if tgt_t:
                             st.session_state.quick_prompt = f"Erstelle eine Miet- und Mietschuldenfreiheitsbescheinigung für {tgt_t}"
@@ -664,10 +702,7 @@ elif menu == "💬 KI-Assistent & Abrechnung":
                             st.rerun()
 
             elif sub_action == "Abmahnung Zahlungsverzug":
-                c_t, c_reason, c_btn = st.columns([2.5, 2.5, 1.5])
-                with c_t:
-                    sel_t_lbl = st.selectbox("Mieter auswählen", list(tenant_options.keys()), key="act_t_sel_az")
-                    tgt_t = tenant_options.get(sel_t_lbl, "")
+                c_reason, c_btn = st.columns([4.5, 1.5])
                 with c_reason:
                     reason_txt = st.text_input("Rückstand / Details", placeholder="z. B. Miete für September und Oktober 2026", key="act_az_reason")
                 with c_btn:
@@ -690,10 +725,7 @@ elif menu == "💬 KI-Assistent & Abrechnung":
             )
 
             if sub_action == "Nebenkostenanpassung":
-                c_t, c_mode, c_inp, c_btn = st.columns([2.5, 1.8, 2.2, 1.5])
-                with c_t:
-                    sel_t_lbl = st.selectbox("Mieter auswählen", list(tenant_options.keys()), key="act_t_sel_nka")
-                    tgt_t = tenant_options.get(sel_t_lbl, "")
+                c_mode, c_inp, c_btn = st.columns([2, 3, 1.5])
                 with c_mode:
                     adj_mode = st.segmented_control("Art", options=["Erhöhung", "Senkung"], default="Senkung", key="act_mode_nka")
                 with c_inp:
@@ -712,10 +744,7 @@ elif menu == "💬 KI-Assistent & Abrechnung":
                             st.rerun()
 
             elif sub_action == "Nebenkostenabrechnung":
-                c_t, c_yr, c_btn = st.columns([2.5, 2.5, 1.5])
-                with c_t:
-                    sel_t_lbl = st.selectbox("Mieter auswählen", list(tenant_options.keys()), key="act_t_sel_nka_bill")
-                    tgt_t = tenant_options.get(sel_t_lbl, "")
+                c_yr, c_btn = st.columns([4.5, 1.5])
                 with c_yr:
                     yr_val = st.number_input("Abrechnungsjahr", min_value=2020, max_value=2030, value=2025, step=1, key="act_yr_nka")
                 with c_btn:
@@ -728,7 +757,7 @@ elif menu == "💬 KI-Assistent & Abrechnung":
                             st.rerun()
 
             elif sub_action == "Kostenübersicht":
-                c_yr, c_btn = st.columns([3.5, 1.5])
+                c_yr, c_btn = st.columns([4.5, 1.5])
                 with c_yr:
                     yr_val = st.number_input("Abrechnungsjahr", min_value=2020, max_value=2030, value=2025, step=1, key="act_yr_ko")
                 with c_btn:
@@ -749,10 +778,7 @@ elif menu == "💬 KI-Assistent & Abrechnung":
             )
 
             if sub_action == "Handwerker / Wartung":
-                c_t, c_inp, c_btn = st.columns([2.5, 2.5, 1.5])
-                with c_t:
-                    sel_t_lbl = st.selectbox("Mieter auswählen", list(tenant_options.keys()), key="act_t_sel_hw")
-                    tgt_t = tenant_options.get(sel_t_lbl, "")
+                c_inp, c_btn = st.columns([4.5, 1.5])
                 with c_inp:
                     work_txt = st.text_input("Grund & Termin", placeholder="z. B. Heizungswartung am 15.11. von 9-12 Uhr", key="act_hw_work")
                 with c_btn:
@@ -766,10 +792,7 @@ elif menu == "💬 KI-Assistent & Abrechnung":
                             st.rerun()
 
             elif sub_action == "Bankverbindung mitteilen":
-                c_t, c_inp, c_btn = st.columns([2.5, 2.5, 1.5])
-                with c_t:
-                    sel_t_lbl = st.selectbox("Mieter auswählen", list(tenant_options.keys()), key="act_t_sel_bv")
-                    tgt_t = tenant_options.get(sel_t_lbl, "")
+                c_inp, c_btn = st.columns([4.5, 1.5])
                 with c_inp:
                     bank_txt = st.text_input("Hinweis / Bankdaten (optional)", placeholder="z. B. Neues Mietkonto ab dem 01.11.2026", key="act_bv_hint")
                 with c_btn:
@@ -783,10 +806,7 @@ elif menu == "💬 KI-Assistent & Abrechnung":
                             st.rerun()
 
             elif sub_action == "Abmahnung Hausordnung":
-                c_t, c_inp, c_btn = st.columns([2.5, 2.5, 1.5])
-                with c_t:
-                    sel_t_lbl = st.selectbox("Mieter auswählen", list(tenant_options.keys()), key="act_t_sel_ah")
-                    tgt_t = tenant_options.get(sel_t_lbl, "")
+                c_inp, c_btn = st.columns([4.5, 1.5])
                 with c_inp:
                     incident_txt = st.text_input("Pflichtverletzung", placeholder="z. B. wiederholte Ruhestörung nach 22:00 Uhr", key="act_ah_incident")
                 with c_btn:
@@ -800,7 +820,7 @@ elif menu == "💬 KI-Assistent & Abrechnung":
                             st.rerun()
 
             elif sub_action == "Mieterübersicht":
-                c_txt, c_btn = st.columns([3.5, 1.5])
+                c_txt, c_btn = st.columns([4.5, 1.5])
                 with c_txt:
                     st.write("Ruft die vollständige Übersicht aller aktuell aktiven Mieter ab.")
                 with c_btn:
@@ -927,223 +947,368 @@ elif menu == "💬 KI-Assistent & Abrechnung":
                             )
                 st.session_state.messages.append(assistant_msg)
 
-# TAB 2: Mieter & Einheiten
-elif menu == "👥 Mieter & Einheiten":
-    col_hdr_main, col_hdr_gear = st.columns([0.84, 0.16])
-    with col_hdr_gear:
-        st.write("")
-        if st.button("Einstellungen", icon=":material/settings:", key="btn_gear_tenants", use_container_width=True, help="Einstellungen, Vermieterdaten & Modell öffnen"):
-            st.session_state["previous_menu"] = "👥 Mieter & Einheiten"
-            st.session_state["show_settings"] = True
+# TAB 2: Liegenschaften & Mieter
+elif menu == "Liegenschaften & Mieter":
+    active_property_id = st.session_state.get("active_property_id", None)
+
+    # LEVEL 1: Übersicht aller Liegenschaften
+    if active_property_id is None:
+        col_hdr_main, col_hdr_gear = st.columns([0.84, 0.16])
+        with col_hdr_gear:
+            st.write("")
+            if st.button("Einstellungen", icon=":material/settings:", key="btn_gear_properties", use_container_width=True, help="Einstellungen, Vermieterdaten & Modell öffnen"):
+                st.session_state["previous_menu"] = "Liegenschaften & Mieter"
+                st.session_state["show_settings"] = True
+                st.rerun()
+        with col_hdr_main:
+            st.header("Liegenschaften & Mieter")
+            st.write("Verwalte alle Liegenschaften, Gebäude-Stammdaten und die zugehörigen Mietverhältnisse.")
+
+        properties = get_all_properties()
+
+        # Gesamtkennzahlen
+        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+        total_units = sum(int(p.get("unit_count") or 0) for p in properties)
+        total_tenants = sum(int(p.get("tenant_count") or 0) for p in properties)
+        total_sqm = sum(float(p.get("total_area_sqm") or 0.0) for p in properties)
+        with col_m1:
+            st.metric("Liegenschaften", len(properties))
+        with col_m2:
+            st.metric("Wohneinheiten", total_units)
+        with col_m3:
+            st.metric("Gesamtfläche", f"{total_sqm:,.0f} m²".replace(",", "."))
+        with col_m4:
+            st.metric("Aktive Mieter", total_tenants)
+
+        st.markdown("---")
+
+        col_title, col_new_prop = st.columns([0.7, 0.3])
+        with col_title:
+            st.subheader("Verwaltete Liegenschaften")
+        with col_new_prop:
+            with st.popover("Neue Liegenschaft anlegen", icon=":material/add_home_work:", use_container_width=True):
+                st.markdown("##### Neue Liegenschaft erfassen")
+                with st.form("form_add_property", clear_on_submit=True):
+                    np_name = st.text_input("Name der Liegenschaft *", placeholder="z. B. Wohnanlage Sonnenhang")
+                    np_alias = st.text_input("Optionaler Alias (Kurzname)", placeholder="z. B. Sonnenhang")
+                    np_street = st.text_input("Straße & Hausnummer *", placeholder="z. B. Lindenstraße 14")
+                    col_np_z, np_city_col = st.columns([1, 2])
+                    with col_np_z:
+                        np_zip = st.text_input("PLZ *", placeholder="10115")
+                    with np_city_col:
+                        np_city = st.text_input("Ort *", placeholder="Berlin")
+                    np_area = st.number_input("Gesamtwohnfläche (m²)", min_value=0.0, value=200.0, step=10.0)
+                    submit_new_prop = st.form_submit_button("Liegenschaft anlegen", icon=":material/save:", type="primary", use_container_width=True)
+                    if submit_new_prop:
+                        if not np_name.strip() or not np_street.strip() or not np_zip.strip() or not np_city.strip():
+                            st.error("Bitte mindestens Name, Straße, PLZ und Ort angeben!")
+                        else:
+                            new_p_id = add_property(
+                                name=np_name.strip(),
+                                alias=np_alias.strip() if np_alias.strip() else None,
+                                street=np_street.strip(),
+                                zip_code=np_zip.strip(),
+                                city=np_city.strip(),
+                                total_area_sqm=np_area
+                            )
+                            # Automatisch eine Standard-Wohneinheit anlegen
+                            add_unit(new_p_id, "Wohnung 1", np_area, "EG")
+                            st.success(f"Liegenschaft '{np_name}' erfolgreich angelegt!")
+                            st.rerun()
+
+        if not properties:
+            st.info("Aktuell sind noch keine Liegenschaften erfasst. Lege jetzt die erste Liegenschaft an.")
+        else:
+            for p in properties:
+                with st.container(border=True):
+                    col_info, col_metrics, col_actions = st.columns([0.45, 0.27, 0.28])
+                    with col_info:
+                        alias_part = f" · Alias: **{p['alias']}**" if p.get("alias") else ""
+                        st.markdown(f"#### {p['name']}{alias_part}")
+                        st.caption(f":material/location_on: {p['street']}, {p['zip_code']} {p['city']}")
+                    with col_metrics:
+                        st.markdown(f"**Mieter:** {p['tenant_count']} &nbsp;|&nbsp; **Einheiten:** {p['unit_count']}")
+                        st.caption(f"Gesamtfläche: {float(p.get('total_area_sqm') or 0.0):.1f} m²")
+                    with col_actions:
+                        st.write("")
+                        c_open, c_alias = st.columns([1.2, 0.8])
+                        with c_open:
+                            if st.button("Öffnen", icon=":material/arrow_forward:", key=f"open_prop_{p['property_id']}", type="primary", use_container_width=True):
+                                st.session_state["active_property_id"] = p["property_id"]
+                                st.rerun()
+                        with c_alias:
+                            with st.popover("Alias", icon=":material/label:", use_container_width=True):
+                                st.markdown(f"**Alias für {p['name']}**")
+                                cur_alias = p.get("alias") or ""
+                                new_alias_input = st.text_input("Alias festlegen", value=cur_alias, key=f"input_alias_{p['property_id']}")
+                                if st.button("Speichern", key=f"save_alias_{p['property_id']}", icon=":material/save:", type="primary", use_container_width=True):
+                                    update_property_alias(p["property_id"], new_alias_input.strip() if new_alias_input.strip() else None)
+                                    st.success("Alias aktualisiert!")
+                                    st.rerun()
+
+    # LEVEL 2: Detailansicht einer ausgewählten Liegenschaft
+    else:
+        prop = get_property_by_id(active_property_id)
+        if not prop:
+            st.session_state["active_property_id"] = None
             st.rerun()
-    with col_hdr_main:
-        st.header("Mieter- und Einheitenverwaltung")
-        st.write("Verwalte alle Mietverhältnisse, Wohnungszuweisungen, Mietverträge und Kontaktdaten.")
-    
-    tenants = get_all_tenants()
-    all_units = get_all_units()
-    
-    tab_list, tab_add, tab_edit = st.tabs([
-        "📋 Mieterübersicht & Abrechnung", 
-        "➕ Neuen Mieter anlegen", 
-        "✏️ Mieterdaten bearbeiten"
-    ])
-    
-    with tab_list:
-        if tenants:
-            df = pd.DataFrame(tenants)
-            df_display = df.rename(columns={
-                "tenant_id": "ID",
-                "salutation": "Anrede",
-                "first_name": "Vorname",
-                "last_name": "Nachname",
-                "unit_number": "Wohneinheit",
-                "area_sqm": "Fläche (m²)",
-                "cold_rent": "Kaltmiete (€)",
-                "price_per_sqm": "Miete / m² (€)",
-                "utility_advance": "NK-Vorauszahlung (€)",
-                "property_name": "Objekt",
-                "phone": "Telefon",
-                "email": "E-Mail",
-                "lease_start": "Mietbeginn",
-                "lease_end": "Mietende"
-            })
-            cols_to_show = [c for c in ["ID", "Anrede", "Vorname", "Nachname", "Wohneinheit", "Fläche (m²)", "Kaltmiete (€)", "Miete / m² (€)", "NK-Vorauszahlung (€)", "Mietbeginn", "Telefon", "E-Mail"] if c in df_display.columns]
-            st.dataframe(df_display[cols_to_show], use_container_width=True, hide_index=True)
-            
-            # Schnell-Abrechnungsgenerator pro Mieter
-            st.markdown("---")
-            st.subheader("⚡ 1-Klick Abrechnungs-Erstellung")
-            col_sel, col_yr, col_btn = st.columns([3, 1, 2])
-            with col_sel:
-                tenant_names = {f"{t.get('salutation', 'Herr')} {t['first_name']} {t['last_name']} ({t['unit_number']})": t["tenant_id"] for t in tenants}
-                selected_t_name = st.selectbox("Mieter auswählen", list(tenant_names.keys()), key="bill_tenant_select")
-            with col_yr:
-                year_val = st.number_input("Abrechnungsjahr", min_value=2020, max_value=2030, value=2025, key="bill_year_input")
-            with col_btn:
-                st.write("")
-                st.write("")
-                if st.button("📄 PDF jetzt generieren", type="primary", use_container_width=True, key="btn_gen_pdf"):
-                    t_id = tenant_names[selected_t_name]
-                    bill = create_utility_statement_for_tenant(t_id, int(year_val))
-                    st.success(f"Abrechnung für {selected_t_name} erfolgreich erstellt!")
-                    with open(bill["pdf_path"], "rb") as f:
-                        pdf_data = f.read()
-                    st.download_button(
-                        label=f"📥 Download {os.path.basename(bill['pdf_path'])}",
-                        data=pdf_data,
-                        file_name=os.path.basename(bill["pdf_path"]),
-                        mime="application/pdf",
-                        key="btn_download_bill"
-                    )
-        else:
-            st.info("Aktuell sind noch keine Mieter erfasst. Nutze den Reiter '➕ Neuen Mieter anlegen', um den ersten Mieter hinzuzufügen.")
 
-    with tab_add:
-        st.subheader("➕ Neuen Mieter manuell anlegen")
-        st.caption("Pflichtfelder sind nur Vor- und Nachname. Alle anderen Felder können frei bleiben oder später ergänzt werden.")
-        
-        with st.form("form_add_tenant", clear_on_submit=True):
-            col_sal, col_fn, col_ln = st.columns([1, 2, 2])
-            with col_sal:
-                new_sal = st.selectbox("Anrede", ["Herr", "Frau"])
-            with col_fn:
-                new_fn = st.text_input("Vorname *", placeholder="z. B. Sabine")
-            with col_ln:
-                new_ln = st.text_input("Nachname *", placeholder="z. B. Meier")
-                
-            col_u, col_cr, col_nk = st.columns(3)
-            with col_u:
-                unit_options = {f"{u['unit_number']} ({u['area_sqm']:.0f} m² - {u['property_name']})": u["unit_id"] for u in all_units} if all_units else {"Standard": 1}
-                selected_unit_label = st.selectbox("Wohneinheit", list(unit_options.keys()))
-                selected_unit_id = unit_options[selected_unit_label]
-            with col_cr:
-                new_cr = st.number_input("Kaltmiete (€)", min_value=0.0, value=0.0, step=50.0)
-            with col_nk:
-                new_nk = st.number_input("NK-Vorauszahlung (€)", min_value=0.0, value=0.0, step=10.0)
-                
-            col_start, col_end = st.columns(2)
-            with col_start:
-                new_start = st.date_input("Mietbeginn", value=date.today())
-            with col_end:
-                new_end = st.text_input("Mietende (optional)", placeholder="z. B. 2026-12-31 oder leer lassen")
-                
-            col_em, col_ph = st.columns(2)
-            with col_em:
-                new_em = st.text_input("E-Mail-Adresse (optional)", placeholder="mieter@beispiel.de")
-            with col_ph:
-                new_ph = st.text_input("Telefonnummer (optional)", placeholder="+49 170 1234567")
-                
-            submitted = st.form_submit_button("💾 Mieter speichern", type="primary", use_container_width=True)
-            if submitted:
-                if not new_fn.strip() or not new_ln.strip():
-                    st.error("⚠️ Bitte mindestens Vorname und Nachname ausfüllen!")
-                else:
-                    add_new_tenant(
-                        first_name=new_fn.strip(),
-                        last_name=new_ln.strip(),
-                        salutation=new_sal,
-                        unit_id=selected_unit_id,
-                        cold_rent=new_cr,
-                        utility_advance=new_nk,
-                        lease_start=str(new_start),
-                        email=new_em,
-                        phone=new_ph
-                    )
-                    st.success(f"✅ Mieter {new_sal} {new_fn} {new_ln} wurde erfolgreich angelegt!")
-                    st.rerun()
+        col_back, col_space, col_gear = st.columns([0.22, 0.62, 0.16])
+        with col_back:
+            if st.button("Alle Liegenschaften", icon=":material/arrow_back:", key="btn_back_to_properties", use_container_width=True):
+                st.session_state["active_property_id"] = None
+                st.rerun()
+        with col_gear:
+            if st.button("Einstellungen", icon=":material/settings:", key="btn_gear_property_detail", use_container_width=True, help="Einstellungen, Vermieterdaten & Modell öffnen"):
+                st.session_state["previous_menu"] = "Liegenschaften & Mieter"
+                st.session_state["show_settings"] = True
+                st.rerun()
 
-    with tab_edit:
-        st.subheader("✏️ Bestehenden Mieter bearbeiten")
-        if tenants:
-            tenant_dict = {f"{t.get('salutation', 'Herr')} {t['first_name']} {t['last_name']} (ID {t['tenant_id']} - {t['unit_number']})": t for t in tenants}
-            selected_label = st.selectbox("Wähle einen Mieter zum Bearbeiten", list(tenant_dict.keys()), key="edit_select_tenant")
-            t_data = tenant_dict[selected_label]
-            
-            with st.form("form_edit_tenant"):
-                col_e_sal, col_e_fn, col_e_ln = st.columns([1, 2, 2])
-                with col_e_sal:
-                    cur_sal = t_data.get("salutation", "Herr") or "Herr"
-                    sal_idx = 1 if cur_sal == "Frau" else 0
-                    edit_sal = st.selectbox("Anrede", ["Herr", "Frau"], index=sal_idx)
-                with col_e_fn:
-                    edit_fn = st.text_input("Vorname *", value=t_data.get("first_name", ""))
-                with col_e_ln:
-                    edit_ln = st.text_input("Nachname *", value=t_data.get("last_name", ""))
-                    
-                col_e_u, col_e_cr, col_e_nk = st.columns(3)
-                with col_e_u:
-                    unit_options = {f"{u['unit_number']} ({u['area_sqm']:.0f} m² - {u['property_name']})": u["unit_id"] for u in all_units} if all_units else {"Standard": 1}
-                    unit_keys = list(unit_options.keys())
-                    curr_idx = 0
-                    for idx, key in enumerate(unit_keys):
-                        if unit_options[key] == t_data.get("unit_id"):
-                            curr_idx = idx
-                            break
-                    edit_unit_label = st.selectbox("Wohneinheit", unit_keys, index=curr_idx)
-                    edit_unit_id = unit_options[edit_unit_label]
-                with col_e_cr:
-                    edit_cr = st.number_input("Kaltmiete (€)", min_value=0.0, value=float(t_data.get("cold_rent") or 0.0), step=50.0)
-                with col_e_nk:
-                    edit_nk = st.number_input("NK-Vorauszahlung (€)", min_value=0.0, value=float(t_data.get("utility_advance") or 0.0), step=10.0)
-                    
-                col_e_start, col_e_end = st.columns(2)
-                with col_e_start:
-                    try:
-                        parsed_start = datetime.strptime(str(t_data.get("lease_start") or "2025-01-01")[:10], "%Y-%m-%d").date()
-                    except Exception:
-                        parsed_start = date.today()
-                    edit_start = st.date_input("Mietbeginn", value=parsed_start)
-                with col_e_end:
-                    edit_end = st.text_input("Mietende (optional)", value=str(t_data.get("lease_end") or ""))
-                    
-                col_e_em, col_e_ph = st.columns(2)
-                with col_e_em:
-                    edit_em = st.text_input("E-Mail-Adresse", value=str(t_data.get("email") or ""))
-                with col_e_ph:
-                    edit_ph = st.text_input("Telefonnummer", value=str(t_data.get("phone") or ""))
-                    
-                col_save, col_del = st.columns([3, 1])
-                with col_save:
-                    save_clicked = st.form_submit_button("💾 Änderungen speichern", type="primary", use_container_width=True)
-                with col_del:
-                    delete_clicked = st.form_submit_button("🗑️ Mieter löschen", use_container_width=True)
-                    
-                if save_clicked:
-                    if not edit_fn.strip() or not edit_ln.strip():
-                        st.error("⚠️ Vorname und Nachname sind Pflichtfelder!")
+        alias_display = f" · Alias: {prop['alias']}" if prop.get("alias") else ""
+        st.header(f"{prop['name']}{alias_display}")
+        st.caption(f":material/location_on: {prop['street']}, {prop['zip_code']} {prop['city']} · Gesamtfläche: {prop['total_area_sqm']:.1f} m² · Einheiten: {prop['unit_count']} · Mieter: {prop['tenant_count']}")
+
+        prop_tenants = get_tenants_by_property(active_property_id)
+        prop_units = get_units_by_property(active_property_id)
+
+        tab_tenants, tab_add_t, tab_edit_t, tab_units, tab_prop_settings = st.tabs([
+            "Mieterübersicht",
+            "Neuen Mieter anlegen",
+            "Mieter bearbeiten & löschen",
+            "Wohneinheiten",
+            "Liegenschaftsdaten & Alias"
+        ])
+
+        with tab_tenants:
+            if prop_tenants:
+                df = pd.DataFrame(prop_tenants)
+                df_display = df.rename(columns={
+                    "tenant_id": "ID",
+                    "salutation": "Anrede",
+                    "first_name": "Vorname",
+                    "last_name": "Nachname",
+                    "unit_number": "Wohneinheit",
+                    "area_sqm": "Fläche (m²)",
+                    "cold_rent": "Kaltmiete (€)",
+                    "price_per_sqm": "Miete / m² (€)",
+                    "utility_advance": "NK-Vorauszahlung (€)",
+                    "phone": "Telefon",
+                    "email": "E-Mail",
+                    "lease_start": "Mietbeginn",
+                    "lease_end": "Mietende"
+                })
+                cols_to_show = [c for c in ["ID", "Anrede", "Vorname", "Nachname", "Wohneinheit", "Fläche (m²)", "Kaltmiete (€)", "Miete / m² (€)", "NK-Vorauszahlung (€)", "Mietbeginn", "Telefon", "E-Mail"] if c in df_display.columns]
+                st.dataframe(df_display[cols_to_show], use_container_width=True, hide_index=True)
+            else:
+                st.info("In dieser Liegenschaft sind aktuell keine Mieter erfasst. Nutze den Reiter 'Neuen Mieter anlegen', um einen Mieter hinzuzufügen.")
+
+        with tab_add_t:
+            st.subheader("Neuen Mieter anlegen")
+            st.caption(f"Der neue Mieter wird direkt der Liegenschaft '{prop['name']}' zugewiesen.")
+
+            with st.form("form_add_tenant_prop", clear_on_submit=True):
+                col_sal, col_fn, col_ln = st.columns([1, 2, 2])
+                with col_sal:
+                    new_sal = st.selectbox("Anrede", ["Herr", "Frau"])
+                with col_fn:
+                    new_fn = st.text_input("Vorname *", placeholder="z. B. Sabine")
+                with col_ln:
+                    new_ln = st.text_input("Nachname *", placeholder="z. B. Meier")
+
+                col_u, col_cr, col_nk = st.columns(3)
+                with col_u:
+                    unit_options = {f"{u['unit_number']} ({u['area_sqm']:.0f} m² · {u.get('floor') or 'EG'})": u["unit_id"] for u in prop_units} if prop_units else {"Standard": 1}
+                    selected_unit_label = st.selectbox("Wohneinheit", list(unit_options.keys()))
+                    selected_unit_id = unit_options[selected_unit_label]
+                with col_cr:
+                    new_cr = st.number_input("Kaltmiete (€)", min_value=0.0, value=0.0, step=50.0)
+                with col_nk:
+                    new_nk = st.number_input("NK-Vorauszahlung (€)", min_value=0.0, value=0.0, step=10.0)
+
+                col_start, col_end = st.columns(2)
+                with col_start:
+                    new_start = st.date_input("Mietbeginn", value=date.today())
+                with col_end:
+                    new_end = st.text_input("Mietende (optional)", placeholder="z. B. 2026-12-31 oder leer lassen")
+
+                col_em, col_ph = st.columns(2)
+                with col_em:
+                    new_em = st.text_input("E-Mail-Adresse (optional)", placeholder="mieter@beispiel.de")
+                with col_ph:
+                    new_ph = st.text_input("Telefonnummer (optional)", placeholder="+49 170 1234567")
+
+                submitted = st.form_submit_button("Mieter speichern", icon=":material/save:", type="primary", use_container_width=True)
+                if submitted:
+                    if not new_fn.strip() or not new_ln.strip():
+                        st.error("Bitte mindestens Vorname und Nachname ausfüllen!")
                     else:
-                        update_tenant(
-                            tenant_id=t_data["tenant_id"],
-                            first_name=edit_fn.strip(),
-                            last_name=edit_ln.strip(),
-                            salutation=edit_sal,
-                            unit_id=edit_unit_id,
-                            cold_rent=edit_cr,
-                            utility_advance=edit_nk,
-                            lease_start=str(edit_start),
-                            lease_end=edit_end.strip() or None,
-                            email=edit_em.strip(),
-                            phone=edit_ph.strip(),
-                            is_active=1
+                        add_new_tenant(
+                            first_name=new_fn.strip(),
+                            last_name=new_ln.strip(),
+                            salutation=new_sal,
+                            unit_id=selected_unit_id,
+                            cold_rent=new_cr,
+                            utility_advance=new_nk,
+                            lease_start=str(new_start),
+                            lease_end=new_end.strip() or None,
+                            email=new_em,
+                            phone=new_ph
                         )
-                        st.success(f"✅ Daten von {edit_sal} {edit_fn} {edit_ln} wurden erfolgreich aktualisiert!")
+                        st.success(f"Mieter {new_sal} {new_fn} {new_ln} wurde erfolgreich angelegt!")
                         st.rerun()
-                        
-                if delete_clicked:
-                    delete_tenant(t_data["tenant_id"])
-                    st.warning(f"Mieter {t_data['first_name']} {t_data['last_name']} wurde gelöscht.")
-                    st.rerun()
-        else:
-            st.info("Keine Mieter vorhanden zum Bearbeiten.")
+
+        with tab_edit_t:
+            st.subheader("Mieter bearbeiten & löschen")
+            if prop_tenants:
+                tenant_dict = {f"{t.get('salutation', 'Herr')} {t['first_name']} {t['last_name']} (ID {t['tenant_id']} · {t['unit_number']})": t for t in prop_tenants}
+                selected_label = st.selectbox("Wähle einen Mieter zum Bearbeiten", list(tenant_dict.keys()), key="edit_prop_select_tenant")
+                t_data = tenant_dict[selected_label]
+
+                with st.form("form_edit_tenant_prop"):
+                    col_e_sal, col_e_fn, col_e_ln = st.columns([1, 2, 2])
+                    with col_e_sal:
+                        cur_sal = t_data.get("salutation", "Herr") or "Herr"
+                        sal_idx = 1 if cur_sal == "Frau" else 0
+                        edit_sal = st.selectbox("Anrede", ["Herr", "Frau"], index=sal_idx)
+                    with col_e_fn:
+                        edit_fn = st.text_input("Vorname *", value=t_data.get("first_name", ""))
+                    with col_e_ln:
+                        edit_ln = st.text_input("Nachname *", value=t_data.get("last_name", ""))
+
+                    col_e_u, col_e_cr, col_e_nk = st.columns(3)
+                    with col_e_u:
+                        unit_options = {f"{u['unit_number']} ({u['area_sqm']:.0f} m² · {u.get('floor') or 'EG'})": u["unit_id"] for u in prop_units} if prop_units else {"Standard": 1}
+                        unit_keys = list(unit_options.keys())
+                        curr_idx = 0
+                        for idx, key in enumerate(unit_keys):
+                            if unit_options[key] == t_data.get("unit_id"):
+                                curr_idx = idx
+                                break
+                        edit_unit_label = st.selectbox("Wohneinheit", unit_keys, index=curr_idx)
+                        edit_unit_id = unit_options[edit_unit_label]
+                    with col_e_cr:
+                        edit_cr = st.number_input("Kaltmiete (€)", min_value=0.0, value=float(t_data.get("cold_rent") or 0.0), step=50.0)
+                    with col_e_nk:
+                        edit_nk = st.number_input("NK-Vorauszahlung (€)", min_value=0.0, value=float(t_data.get("utility_advance") or 0.0), step=10.0)
+
+                    col_e_start, col_e_end = st.columns(2)
+                    with col_e_start:
+                        try:
+                            parsed_start = datetime.strptime(str(t_data.get("lease_start") or "2025-01-01")[:10], "%Y-%m-%d").date()
+                        except Exception:
+                            parsed_start = date.today()
+                        edit_start = st.date_input("Mietbeginn", value=parsed_start)
+                    with col_e_end:
+                        edit_end = st.text_input("Mietende (optional)", value=str(t_data.get("lease_end") or ""))
+
+                    col_e_em, col_e_ph = st.columns(2)
+                    with col_e_em:
+                        edit_em = st.text_input("E-Mail-Adresse", value=str(t_data.get("email") or ""))
+                    with col_e_ph:
+                        edit_ph = st.text_input("Telefonnummer", value=str(t_data.get("phone") or ""))
+
+                    col_save, col_del = st.columns([3, 1])
+                    with col_save:
+                        save_clicked = st.form_submit_button("Änderungen speichern", icon=":material/save:", type="primary", use_container_width=True)
+                    with col_del:
+                        delete_clicked = st.form_submit_button("Mieter löschen", icon=":material/delete:", use_container_width=True)
+
+                    if save_clicked:
+                        if not edit_fn.strip() or not edit_ln.strip():
+                            st.error("Vorname und Nachname sind Pflichtfelder!")
+                        else:
+                            update_tenant(
+                                tenant_id=t_data["tenant_id"],
+                                first_name=edit_fn.strip(),
+                                last_name=edit_ln.strip(),
+                                salutation=edit_sal,
+                                unit_id=edit_unit_id,
+                                cold_rent=edit_cr,
+                                utility_advance=edit_nk,
+                                lease_start=str(edit_start),
+                                lease_end=edit_end.strip() or None,
+                                email=edit_em.strip(),
+                                phone=edit_ph.strip(),
+                                is_active=1
+                            )
+                            st.success(f"Daten von {edit_sal} {edit_fn} {edit_ln} wurden erfolgreich aktualisiert!")
+                            st.rerun()
+
+                    if delete_clicked:
+                        delete_tenant(t_data["tenant_id"])
+                        st.warning(f"Mieter {t_data['first_name']} {t_data['last_name']} wurde gelöscht.")
+                        st.rerun()
+            else:
+                st.info("Keine Mieter in dieser Liegenschaft vorhanden.")
+
+        with tab_units:
+            st.subheader("Wohneinheiten dieser Liegenschaft")
+            if prop_units:
+                df_u = pd.DataFrame(prop_units).rename(columns={
+                    "unit_id": "Einheiten-ID",
+                    "unit_number": "Bezeichnung / Nummer",
+                    "floor": "Etage",
+                    "area_sqm": "Fläche (m²)"
+                })
+                cols_u = [c for c in ["Einheiten-ID", "Bezeichnung / Nummer", "Etage", "Fläche (m²)"] if c in df_u.columns]
+                st.dataframe(df_u[cols_u], use_container_width=True, hide_index=True)
+            else:
+                st.info("Noch keine separaten Einheiten angelegt.")
+
+            with st.popover("Neue Wohneinheit hinzufügen", icon=":material/add:", use_container_width=True):
+                st.markdown("##### Neue Wohneinheit anlegen")
+                with st.form("form_add_unit_to_prop", clear_on_submit=True):
+                    u_num = st.text_input("Bezeichnung / Nummer *", placeholder="z. B. Wohnung 4 (2. OG)")
+                    u_floor = st.text_input("Etage", value="1. OG")
+                    u_area = st.number_input("Wohnfläche (m²) *", min_value=10.0, value=75.0, step=5.0)
+                    submit_unit = st.form_submit_button("Einheit anlegen", icon=":material/save:", type="primary", use_container_width=True)
+                    if submit_unit:
+                        if not u_num.strip():
+                            st.error("Bitte Bezeichnung angeben!")
+                        else:
+                            add_unit(active_property_id, u_num.strip(), u_area, u_floor)
+                            st.success(f"Wohneinheit '{u_num}' angelegt!")
+                            st.rerun()
+
+        with tab_prop_settings:
+            st.subheader("Liegenschaftsdaten & Alias")
+            st.caption("Bearbeite hier den Alias oder die Stammdaten dieser Liegenschaft.")
+
+            with st.form("form_edit_property_details"):
+                ep_name = st.text_input("Name der Liegenschaft *", value=prop["name"])
+                ep_alias = st.text_input("Optionaler Alias (Kurzname)", value=prop.get("alias") or "")
+                ep_street = st.text_input("Straße & Hausnummer *", value=prop["street"])
+                c_ep_z, c_ep_c = st.columns([1, 2])
+                with c_ep_z:
+                    ep_zip = st.text_input("PLZ *", value=prop["zip_code"])
+                with c_ep_c:
+                    ep_city = st.text_input("Ort *", value=prop["city"])
+                ep_area = st.number_input("Gesamtfläche (m²) *", min_value=0.0, value=float(prop["total_area_sqm"] or 0.0), step=10.0)
+
+                save_p_btn = st.form_submit_button("Liegenschaft speichern", icon=":material/save:", type="primary", use_container_width=True)
+                if save_p_btn:
+                    if not ep_name.strip() or not ep_street.strip() or not ep_zip.strip() or not ep_city.strip():
+                        st.error("Bitte alle Pflichtfelder (Name, Straße, PLZ, Ort) ausfüllen!")
+                    else:
+                        update_property(
+                            property_id=active_property_id,
+                            name=ep_name.strip(),
+                            alias=ep_alias.strip() if ep_alias.strip() else None,
+                            street=ep_street.strip(),
+                            zip_code=ep_zip.strip(),
+                            city=ep_city.strip(),
+                            total_area_sqm=ep_area
+                        )
+                        st.success("Liegenschaftsdaten erfolgreich gespeichert!")
+                        st.rerun()
 
 # TAB 3: Betriebskosten & Finanzen
-elif menu == "📊 Betriebskosten & Finanzen":
+elif menu == "Betriebskosten & Finanzen":
     col_hdr_main, col_hdr_gear = st.columns([0.84, 0.16])
     with col_hdr_gear:
         st.write("")
         if st.button("Einstellungen", icon=":material/settings:", key="btn_gear_finances", use_container_width=True, help="Einstellungen, Vermieterdaten & Modell öffnen"):
-            st.session_state["previous_menu"] = "📊 Betriebskosten & Finanzen"
+            st.session_state["previous_menu"] = "Betriebskosten & Finanzen"
             st.session_state["show_settings"] = True
             st.rerun()
     with col_hdr_main:

@@ -26,6 +26,11 @@ def init_db() -> None:
             conn.execute("ALTER TABLE tenants ADD COLUMN salutation TEXT DEFAULT 'Herr';")
         # Automatisch korrigieren falls Laura Schmidt noch Herr hat
         conn.execute("UPDATE tenants SET salutation = 'Frau' WHERE first_name = 'Laura' OR last_name = 'Schmidt';")
+
+        # Migration: alias Spalte in properties sicherstellen
+        columns_props = [row[1] for row in conn.execute("PRAGMA table_info(properties);").fetchall()]
+        if "alias" not in columns_props:
+            conn.execute("ALTER TABLE properties ADD COLUMN alias TEXT;")
         conn.commit()
     from database.settings import init_settings
     init_settings()

@@ -3,6 +3,7 @@
 CREATE TABLE IF NOT EXISTS properties (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
+    alias TEXT,
     street TEXT NOT NULL,
     zip_code TEXT NOT NULL,
     city TEXT NOT NULL,

@@ -13,6 +13,103 @@ def get_all_units() -> List[Dict[str, Any]]:
     """
     return query_db(sql)
 
+def get_all_properties() -> List[Dict[str, Any]]:
+    """Gibt alle Liegenschaften mit aggregierter Einheiten- und Mieteranzahl sowie Alias zurück."""
+    sql = """
+        SELECT 
+            p.id as property_id, p.name, p.alias, p.street, p.zip_code, p.city, p.total_area_sqm,
+            COUNT(DISTINCT u.id) as unit_count,
+            COUNT(DISTINCT t.id) as tenant_count
+        FROM properties p
+        LEFT JOIN units u ON u.property_id = p.id
+        LEFT JOIN tenants t ON t.unit_id = u.id AND t.is_active = 1
+        GROUP BY p.id
+        ORDER BY p.name ASC;
+    """
+    return query_db(sql)
+
+def get_property_by_id(property_id: int) -> Optional[Dict[str, Any]]:
+    """Gibt eine einzelne Liegenschaft anhand ihrer ID zurück."""
+    sql = """
+        SELECT 
+            p.id as property_id, p.name, p.alias, p.street, p.zip_code, p.city, p.total_area_sqm,
+            COUNT(DISTINCT u.id) as unit_count,
+            COUNT(DISTINCT t.id) as tenant_count
+        FROM properties p
+        LEFT JOIN units u ON u.property_id = p.id
+        LEFT JOIN tenants t ON t.unit_id = u.id AND t.is_active = 1
+        WHERE p.id = ?
+        GROUP BY p.id;
+    """
+    rows = query_db(sql, (property_id,))
+    return rows[0] if rows else None
+
+def update_property_alias(property_id: int, alias: str) -> bool:
+    """Aktualisiert den optionalen Alias einer Liegenschaft."""
+    from database.db import execute_db
+    execute_db("UPDATE properties SET alias = ? WHERE id = ?;", (alias.strip() if alias and alias.strip() else None, property_id))
+    return True
+
+def update_property(property_id: int, name: str, alias: Optional[str], street: str, zip_code: str, city: str, total_area_sqm: float) -> bool:
+    """Aktualisiert die Stammdaten einer Liegenschaft."""
+    from database.db import execute_db
+    execute_db("""
+        UPDATE properties
+        SET name = ?, alias = ?, street = ?, zip_code = ?, city = ?, total_area_sqm = ?
+        WHERE id = ?;
+    """, (name.strip(), alias.strip() if alias and alias.strip() else None, street.strip(), zip_code.strip(), city.strip(), float(total_area_sqm), property_id))
+    return True
+
+def add_property(name: str, alias: Optional[str], street: str, zip_code: str, city: str, total_area_sqm: float) -> int:
+    """Legt eine neue Liegenschaft in der Datenbank an."""
+    from database.db import execute_db
+    return execute_db("""
+        INSERT INTO properties (name, alias, street, zip_code, city, total_area_sqm)
+        VALUES (?, ?, ?, ?, ?, ?);
+    """, (name.strip(), alias.strip() if alias and alias.strip() else None, street.strip(), zip_code.strip(), city.strip(), float(total_area_sqm)))
+
+def get_tenants_by_property(property_id: int) -> List[Dict[str, Any]]:
+    """Gibt alle Mieter einer bestimmten Liegenschaft mit m²-Preis zurück."""
+    sql = """
+        SELECT 
+            t.id as tenant_id, t.unit_id, t.salutation, t.first_name, t.last_name, t.email, t.phone,
+            t.cold_rent, t.utility_advance, t.lease_start, t.lease_end, t.is_active,
+            u.unit_number, u.area_sqm,
+            p.id as property_id, p.name as property_name, p.alias as property_alias, p.street, p.zip_code, p.city
+        FROM tenants t
+        JOIN units u ON t.unit_id = u.id
+        JOIN properties p ON u.property_id = p.id
+        WHERE p.id = ?
+        ORDER BY t.last_name ASC;
+    """
+    rows = query_db(sql, (property_id,))
+    for r in rows:
+        area = float(r.get("area_sqm") or 0.0)
+        rent = float(r.get("cold_rent") or 0.0)
+        r["price_per_sqm"] = round(rent / area, 2) if area > 0 else 0.0
+        if not r.get("salutation"):
+            r["salutation"] = "Herr"
+    return rows
+
+def get_units_by_property(property_id: int) -> List[Dict[str, Any]]:
+    """Gibt alle Wohneinheiten einer bestimmten Liegenschaft zurück."""
+    sql = """
+        SELECT u.id as unit_id, u.unit_number, u.floor, u.area_sqm, p.name as property_name, p.id as property_id
+        FROM units u
+        JOIN properties p ON u.property_id = p.id
+        WHERE p.id = ?
+        ORDER BY u.unit_number ASC;
+    """
+    return query_db(sql, (property_id,))
+
+def add_unit(property_id: int, unit_number: str, area_sqm: float, floor: str = "EG") -> int:
+    """Fügt einer Liegenschaft eine neue Wohneinheit hinzu."""
+    from database.db import execute_db
+    return execute_db("""
+        INSERT INTO units (property_id, unit_number, area_sqm, floor)
+        VALUES (?, ?, ?, ?);
+    """, (property_id, unit_number.strip(), float(area_sqm), floor.strip()))
+
 def add_new_tenant(
     first_name: str,
     last_name: str,
@@ -117,7 +214,7 @@ def get_all_tenants() -> List[Dict[str, Any]]:
             t.id as tenant_id, t.unit_id, t.salutation, t.first_name, t.last_name, t.email, t.phone,
             t.cold_rent, t.utility_advance, t.lease_start, t.lease_end, t.is_active,
             u.unit_number, u.area_sqm,
-            p.name as property_name, p.street, p.zip_code, p.city
+            p.id as property_id, p.name as property_name, p.alias as property_alias, p.street, p.zip_code, p.city
         FROM tenants t
         JOIN units u ON t.unit_id = u.id
         JOIN properties p ON u.property_id = p.id
