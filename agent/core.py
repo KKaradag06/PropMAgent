@@ -114,23 +114,46 @@ def draft_letter_with_ai(
     tenant_context = "\n".join(context_lines)
 
     settings = get_all_settings()
-    landlord_name = settings.get("landlord_name", "Hausverwaltung Sonnenhang")
+    is_private = settings.get("landlord_type", "private") == "private"
+    default_sender = "Kirdar Karadag" if is_private else "Hausverwaltung Sonnenhang"
+    landlord_name = settings.get("landlord_name", default_sender)
+    if is_private and landlord_name == "Hausverwaltung Sonnenhang":
+        landlord_name = settings.get("landlord_contact_person") or "Kirdar Karadag"
     landlord_contact = settings.get("landlord_contact_person", "")
     landlord_street = settings.get("landlord_street", "Lindenstraße 14")
     landlord_zip = settings.get("landlord_zip", "10115")
     landlord_city = settings.get("landlord_city", "Berlin")
     landlord_phone = settings.get("landlord_phone", "+49 30 12345678")
-    landlord_email = settings.get("landlord_email", "verwaltung@sonnenhang.de")
+    landlord_email = settings.get("landlord_email", "kirdar@karadag.de" if is_private else "verwaltung@sonnenhang.de")
     landlord_iban = settings.get("landlord_iban", "")
     landlord_bic = settings.get("landlord_bic", "")
     landlord_bank = settings.get("landlord_bank_name", "")
     landlord_holder = settings.get("landlord_account_holder", landlord_name)
     closing_phrase = settings.get("default_closing_phrase", "Mit freundlichen Grüßen")
     signature_title = settings.get("default_signature_title", landlord_name)
+    if is_private and "hausverwaltung" in signature_title.lower():
+        signature_title = f"{landlord_name}\n(Vermieter)"
     def_deadline = settings.get("default_payment_deadline_days", "14")
 
-    landlord_context = f"""KONTEXT DES ABSENDERS / VERMIETERS:
-- Name / Hausverwaltung: {landlord_name}
+    if is_private:
+        landlord_context = f"""KONTEXT DES ABSENDERS (PRIVATER VERMIETER):
+- Vermieter (Privatperson): {landlord_name}
+- Organisationsform: PRIVATER VERMIETER (Privatperson, KEINE Hausverwaltung)
+- Anschrift: {landlord_street}, {landlord_zip} {landlord_city}
+- Kontakt: Telefon {landlord_phone}, E-Mail {landlord_email}
+- Bankverbindung: IBAN {landlord_iban}, BIC {landlord_bic}, Kreditinstitut {landlord_bank}, Kontoinhaber {landlord_holder}
+- Standard-Zahlungsfrist: {def_deadline} Tage
+- Grußformel: {closing_phrase}
+- Unterschrift: {signature_title}
+
+STRIKTE VORGABEN FÜR PRIVATEN VERMIETER:
+- Das Schreiben stammt direkt von einem PRIVATEN VERMIETER (Privatperson, keine Hausverwaltung).
+- Verwende NIEMALS Wörter wie 'Hausverwaltung', 'Verwaltung' oder 'unsere Verwaltung' im Text oder im Betreff!
+- Betreffzeilen dürfen niemals 'Hausverwaltung' enthalten (z. B. 'Mitteilung Ihres Vermieters' statt 'Mitteilung der Hausverwaltung').
+- Formuliere professionell aus Sicht des privaten Vermieters ('als Ihr Vermieter', 'ich bitte Sie', 'stehe ich Ihnen gerne zur Verfügung')."""
+    else:
+        landlord_context = f"""KONTEXT DES ABSENDERS (HAUSVERWALTUNG):
+- Name der Hausverwaltung: {landlord_name}
 - Ansprechpartner: {landlord_contact}
 - Anschrift: {landlord_street}, {landlord_zip} {landlord_city}
 - Kontakt: Telefon {landlord_phone}, E-Mail {landlord_email}
@@ -139,7 +162,8 @@ def draft_letter_with_ai(
 - Grußformel: {closing_phrase}
 - Unterschrift: {signature_title}"""
 
-    system_instruction = f"""Du bist ein erfahrener deutscher Hausverwalter und Experte für deutsches Mietrecht (BGB).
+    role_desc = "ein privater Vermieter und Experte für deutsches Mietrecht (BGB)" if is_private else "ein erfahrener Hausverwalter und Experte für deutsches Mietrecht (BGB)"
+    system_instruction = f"""Du bist {role_desc}.
 Deine Aufgabe ist es, anhand der Nutzeranweisung ein professionelles, rechtssicheres und druckfertiges Schreiben an den Mieter zu verfassen.
 
 {landlord_context}
@@ -235,11 +259,18 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
     prompt_lower = user_prompt.lower()
     
     settings = get_all_settings()
-    landlord_name = settings.get("landlord_name", "Hausverwaltung Sonnenhang")
+    is_private = settings.get("landlord_type", "private") == "private"
+    default_sender = "Kirdar Karadag" if is_private else "Hausverwaltung Sonnenhang"
+    landlord_name = settings.get("landlord_name", default_sender)
+    if is_private and landlord_name == "Hausverwaltung Sonnenhang":
+        landlord_name = settings.get("landlord_contact_person") or "Kirdar Karadag"
     landlord_holder = settings.get("landlord_account_holder", landlord_name)
+    if is_private and (not landlord_holder or "hausverwaltung" in landlord_holder.lower()):
+        landlord_holder = landlord_name
     landlord_iban = settings.get("landlord_iban", "DE12 1005 0000 0123 4567 89")
     landlord_bic = settings.get("landlord_bic", "BELADEB1XXX")
     landlord_bank = settings.get("landlord_bank_name", "Berliner Sparkasse")
+    landlord_phone = settings.get("landlord_phone", "")
     default_days = int(settings.get("default_payment_deadline_days", "14"))
     
     is_all_tenants = (tenant_info and tenant_info.get("is_all_tenants")) or any(
@@ -306,21 +337,38 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
         due_date_calc = (now + timedelta(days=days)).strftime("%d.%m.%Y")
 
         subject = f"Zahlungserinnerung: Ausstehende Mietzahlung für {unit_label}"
-        body = (
-            f"{sal_greeting},\n\n"
-            f"bei der Durchsicht unserer Mietkontoeingänge haben wir festgestellt, dass für die von Ihnen angemietete {unit_label} "
-            f"aktuell ein Zahlungsrückstand in Höhe von {fmt_eur(overdue_amt)} offen ist.\n\n"
-            f"Sicherlich handelt es sich hierbei nur um ein vorübergehendes Versehen. Wir bitten Sie daher höflich, den offenen Betrag von {fmt_eur(overdue_amt)} "
-            f"innerhalb einer Frist von {days} Tagen (bis spätestens zum {due_date_calc}) auf unser Mietkonto zu überweisen.\n\n"
-            f"Bankverbindung für Mietzahlungen:\n"
-            f"• Kontoinhaber: {landlord_holder}\n"
-            f"• IBAN: {landlord_iban}\n"
-            f"• BIC: {landlord_bic}\n"
-            f"• Kreditinstitut: {landlord_bank}\n"
-            f"• Verwendungszweck: Mietrückstand {unit_label} - {recipient_name}\n\n"
-            f"Sollten Sie den fälligen Betrag in den letzten Tagen bereits angewiesen haben, betrachten Sie diese Erinnerung bitte als gegenstandslos.\n\n"
-            f"Für Rückfragen stehen wir Ihnen jederzeit gern zur Verfügung."
-        )
+        if is_private:
+            body = (
+                f"{sal_greeting},\n\n"
+                f"bei der Durchsicht meiner Mietkontoeingänge habe ich festgestellt, dass für die von Ihnen angemietete {unit_label} "
+                f"aktuell ein Zahlungsrückstand in Höhe von {fmt_eur(overdue_amt)} offen ist.\n\n"
+                f"Sicherlich handelt es sich hierbei nur um ein vorübergehendes Versehen. Ich bitte Sie daher höflich, den offenen Betrag von {fmt_eur(overdue_amt)} "
+                f"innerhalb einer Frist von {days} Tagen (bis spätestens zum {due_date_calc}) auf mein Mietkonto zu überweisen.\n\n"
+                f"Bankverbindung für Mietzahlungen:\n"
+                f"• Kontoinhaber: {landlord_holder}\n"
+                f"• IBAN: {landlord_iban}\n"
+                f"• BIC: {landlord_bic}\n"
+                f"• Kreditinstitut: {landlord_bank}\n"
+                f"• Verwendungszweck: Mietrückstand {unit_label} - {recipient_name}\n\n"
+                f"Sollten Sie den fälligen Betrag in den letzten Tagen bereits angewiesen haben, betrachten Sie diese Erinnerung bitte als gegenstandslos.\n\n"
+                f"Für Rückfragen stehe ich Ihnen jederzeit gern zur Verfügung."
+            )
+        else:
+            body = (
+                f"{sal_greeting},\n\n"
+                f"bei der Durchsicht unserer Mietkontoeingänge haben wir festgestellt, dass für die von Ihnen angemietete {unit_label} "
+                f"aktuell ein Zahlungsrückstand in Höhe von {fmt_eur(overdue_amt)} offen ist.\n\n"
+                f"Sicherlich handelt es sich hierbei nur um ein vorübergehendes Versehen. Wir bitten Sie daher höflich, den offenen Betrag von {fmt_eur(overdue_amt)} "
+                f"innerhalb einer Frist von {days} Tagen (bis spätestens zum {due_date_calc}) auf unser Mietkonto zu überweisen.\n\n"
+                f"Bankverbindung für Mietzahlungen:\n"
+                f"• Kontoinhaber: {landlord_holder}\n"
+                f"• IBAN: {landlord_iban}\n"
+                f"• BIC: {landlord_bic}\n"
+                f"• Kreditinstitut: {landlord_bank}\n"
+                f"• Verwendungszweck: Mietrückstand {unit_label} - {recipient_name}\n\n"
+                f"Sollten Sie den fälligen Betrag in den letzten Tagen bereits angewiesen haben, betrachten Sie diese Erinnerung bitte als gegenstandslos.\n\n"
+                f"Für Rückfragen stehen wir Ihnen jederzeit gern zur Verfügung."
+            )
         return {"subject": subject, "body": body}
 
     # 0b. Abmahnung Zahlungsverzug
@@ -331,30 +379,53 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
         overdue_amt = euro_val if euro_val > 0 else cur_cold
 
         subject = f"Abmahnung wegen Zahlungsverzugs für {unit_label}"
-        body = (
-            f"{sal_greeting},\n\n"
-            f"hiermit mahnen wir Sie wegen Zahlungsverzugs im Mietverhältnis über die {unit_label} förmlich ab.\n\n"
-            f"Trotz Fälligkeit ist für das genannte Mietobjekt ein Zahlungsrückstand in Höhe von {fmt_eur(overdue_amt)} aufgelaufen. "
-            f"Wir fordern Sie hiermit nachdrücklich auf, den offenen Betrag von {fmt_eur(overdue_amt)} unverzüglich, spätestens jedoch bis zum {due_date_calc}, "
-            f"auf das Ihnen bekannte Mietkonto zu zahlen.\n\n"
-            f"Wir weisen darauf hin, dass wir uns bei fruchtlosem Fristablauf oder weiterem Zahlungsverzug vorbehalten, das Mietverhältnis "
-            f"gemäß § 543 Abs. 2 Nr. 3 BGB außerordentlich fristlos zu kündigen.\n\n"
-            f"Wir gehen davon aus, dass Sie den Ausgleich unverzüglich vornehmen."
-        )
+        if is_private:
+            body = (
+                f"{sal_greeting},\n\n"
+                f"hiermit mahne ich Sie wegen Zahlungsverzugs im Mietverhältnis über die {unit_label} förmlich ab.\n\n"
+                f"Trotz Fälligkeit ist für das genannte Mietobjekt ein Zahlungsrückstand in Höhe von {fmt_eur(overdue_amt)} aufgelaufen. "
+                f"Ich fordere Sie hiermit nachdrücklich auf, den offenen Betrag von {fmt_eur(overdue_amt)} unverzüglich, spätestens jedoch bis zum {due_date_calc}, "
+                f"auf mein Ihnen bekanntes Mietkonto zu zahlen.\n\n"
+                f"Ich weise darauf hin, dass ich mir bei fruchtlosem Fristablauf oder weiterem Zahlungsverzug vorbehalte, das Mietverhältnis "
+                f"gemäß § 543 Abs. 2 Nr. 3 BGB außerordentlich fristlos zu kündigen.\n\n"
+                f"Ich gehe davon aus, dass Sie den Ausgleich unverzüglich vornehmen."
+            )
+        else:
+            body = (
+                f"{sal_greeting},\n\n"
+                f"hiermit mahnen wir Sie wegen Zahlungsverzugs im Mietverhältnis über die {unit_label} förmlich ab.\n\n"
+                f"Trotz Fälligkeit ist für das genannte Mietobjekt ein Zahlungsrückstand in Höhe von {fmt_eur(overdue_amt)} aufgelaufen. "
+                f"Wir fordern Sie hiermit nachdrücklich auf, den offenen Betrag von {fmt_eur(overdue_amt)} unverzüglich, spätestens jedoch bis zum {due_date_calc}, "
+                f"auf das Ihnen bekannte Mietkonto zu zahlen.\n\n"
+                f"Wir weisen darauf hin, dass wir uns bei fruchtlosem Fristablauf oder weiterem Zahlungsverzug vorbehalten, das Mietverhältnis "
+                f"gemäß § 543 Abs. 2 Nr. 3 BGB außerordentlich fristlos zu kündigen.\n\n"
+                f"Wir gehen davon aus, dass Sie den Ausgleich unverzüglich vornehmen."
+            )
         return {"subject": subject, "body": body}
 
     # 0c. Abmahnung Hausordnung / Pflichtverletzung
     if "abmahnung" in prompt_lower:
         subject = f"Abmahnung wegen Verletzung der mietvertraglichen Pflichten ({unit_str})"
-        body = (
-            f"{sal_greeting},\n\n"
-            f"wir müssen uns heute leider mit einer formellen Abmahnung bezüglich Ihres Mietverhältnisses über die Wohnung ({unit_str}) an Sie wenden.\n\n"
-            f"Es wurde wiederholt festgestellt, dass gegen die geltende Hausordnung und die mietvertraglichen Pflichten verstoßen wurde:\n"
-            f"{user_prompt}\n\n"
-            f"Ein derartiges Verhalten beeinträchtigt den Hausfrieden nachhaltig und kann von der Hausgemeinschaft nicht toleriert werden. "
-            f"Wir fordern Sie hiermit auf, dieses Verhalten ab sofort dauerhaft einzustellen und sich an die Hausordnung zu halten.\n\n"
-            f"Sollte es erneut zu gleichartigen Pflichtverletzungen kommen, sehen wir uns gezwungen, das Mietverhältnis fristlos zu kündigen."
-        )
+        if is_private:
+            body = (
+                f"{sal_greeting},\n\n"
+                f"ich muss mich heute leider mit einer formellen Abmahnung bezüglich Ihres Mietverhältnisses über die Wohnung ({unit_str}) an Sie wenden.\n\n"
+                f"Es wurde wiederholt festgestellt, dass gegen die geltende Hausordnung und die mietvertraglichen Pflichten verstoßen wurde:\n"
+                f"{user_prompt}\n\n"
+                f"Ein derartiges Verhalten beeinträchtigt den Hausfrieden nachhaltig und kann von der Hausgemeinschaft nicht toleriert werden. "
+                f"Ich fordere Sie hiermit auf, dieses Verhalten ab sofort dauerhaft einzustellen und sich an die Hausordnung zu halten.\n\n"
+                f"Sollte es erneut zu gleichartigen Pflichtverletzungen kommen, sehe ich mich gezwungen, das Mietverhältnis fristlos zu kündigen."
+            )
+        else:
+            body = (
+                f"{sal_greeting},\n\n"
+                f"wir müssen uns heute leider mit einer formellen Abmahnung bezüglich Ihres Mietverhältnisses über die Wohnung ({unit_str}) an Sie wenden.\n\n"
+                f"Es wurde wiederholt festgestellt, dass gegen die geltende Hausordnung und die mietvertraglichen Pflichten verstoßen wurde:\n"
+                f"{user_prompt}\n\n"
+                f"Ein derartiges Verhalten beeinträchtigt den Hausfrieden nachhaltig und kann von der Hausgemeinschaft nicht toleriert werden. "
+                f"Wir fordern Sie hiermit auf, dieses Verhalten ab sofort dauerhaft einzustellen und sich an die Hausordnung zu halten.\n\n"
+                f"Sollte es erneut zu gleichartigen Pflichtverletzungen kommen, sehen wir uns gezwungen, das Mietverhältnis fristlos zu kündigen."
+            )
         return {"subject": subject, "body": body}
 
     # 0d. Mietbescheinigung
@@ -362,19 +433,34 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
         start_date = tenant_info.get("lease_start", "Mietbeginn") if tenant_info else "Mietbeginn"
         total_rent = cur_cold + cur_nk
         subject = f"Miet- und Mietschuldenfreiheitsbescheinigung für die Wohnung {unit_str}"
-        body = (
-            f"{sal_greeting},\n\n"
-            f"hiermit bescheinigen wir Ihnen für Ihre Unterlagen das bestehende Mietverhältnis über die folgende Wohneinheit:\n\n"
-            f"• Mietobjekt: {tenant_info.get('property_name', 'Wohnanlage') if tenant_info else 'Wohnanlage'}\n"
-            f"• Wohneinheit: {unit_str}\n"
-            f"• Mieter: {recipient_name}\n"
-            f"• Mietbeginn: seit {start_date}\n"
-            f"• Aktuelle monatliche Nettokaltmiete: {cur_cold:.2f} €\n"
-            f"• Aktuelle Betriebskostenvorauszahlung: {cur_nk:.2f} €\n"
-            f"• Monatliche Gesamtmiete: {total_rent:.2f} €\n\n"
-            f"Wir bestätigen, dass die vereinbarte Miete bis zum heutigen Tag stets pünktlich und vollständig gezahlt wurde. "
-            f"Es bestehen keinerlei Mietrückstände (Mietschuldenfreiheit)."
-        )
+        if is_private:
+            body = (
+                f"{sal_greeting},\n\n"
+                f"hiermit bescheinige ich Ihnen für Ihre Unterlagen das bestehende Mietverhältnis über die folgende Wohneinheit:\n\n"
+                f"• Mietobjekt: {tenant_info.get('property_name', 'Wohnanlage') if tenant_info else 'Wohnanlage'}\n"
+                f"• Wohneinheit: {unit_str}\n"
+                f"• Mieter: {recipient_name}\n"
+                f"• Mietbeginn: seit {start_date}\n"
+                f"• Aktuelle monatliche Nettokaltmiete: {cur_cold:.2f} €\n"
+                f"• Aktuelle Betriebskostenvorauszahlung: {cur_nk:.2f} €\n"
+                f"• Monatliche Gesamtmiete: {total_rent:.2f} €\n\n"
+                f"Ich bestätige, dass die vereinbarte Miete bis zum heutigen Tag stets pünktlich und vollständig gezahlt wurde. "
+                f"Es bestehen keinerlei Mietrückstände (Mietschuldenfreiheit)."
+            )
+        else:
+            body = (
+                f"{sal_greeting},\n\n"
+                f"hiermit bescheinigen wir Ihnen für Ihre Unterlagen das bestehende Mietverhältnis über die folgende Wohneinheit:\n\n"
+                f"• Mietobjekt: {tenant_info.get('property_name', 'Wohnanlage') if tenant_info else 'Wohnanlage'}\n"
+                f"• Wohneinheit: {unit_str}\n"
+                f"• Mieter: {recipient_name}\n"
+                f"• Mietbeginn: seit {start_date}\n"
+                f"• Aktuelle monatliche Nettokaltmiete: {cur_cold:.2f} €\n"
+                f"• Aktuelle Betriebskostenvorauszahlung: {cur_nk:.2f} €\n"
+                f"• Monatliche Gesamtmiete: {total_rent:.2f} €\n\n"
+                f"Wir bestätigen, dass die vereinbarte Miete bis zum heutigen Tag stets pünktlich und vollständig gezahlt wurde. "
+                f"Es bestehen keinerlei Mietrückstände (Mietschuldenfreiheit)."
+            )
         return {"subject": subject, "body": body}
 
     # Eindeutige Erkennung der Briefkategorie
@@ -409,20 +495,36 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
         new_cold = cur_cold + diff
         total_rent = new_cold + cur_nk
         subject = "Mieterhöhungsverlangen gemäß § 558 BGB zur Anpassung an die ortsübliche Vergleichsmiete"
-        body = (
-            f"{sal_greeting},\n\n"
-            f"hiermit kündigen wir Ihnen eine Erhöhung der monatlichen Nettokaltmiete für die von Ihnen angemietete Wohnung ({unit_str}) an.\n\n"
-            f"Gemäß § 558 BGB sind wir berechtigt, die Miete bis zur ortsüblichen Vergleichsmiete anzupassen. "
-            f"Die gesetzliche Kappungsgrenze sowie die 15-monatige Wartefrist seit Mietbeginn bzw. der letzten Mieterhöhung werden dabei vollständig eingehalten.\n\n"
-            f"Zusammensetzung der Miete ab dem {effective_cold_str}:\n"
-            f"• Bisherige monatliche Nettokaltmiete: {cur_cold:.2f} €\n"
-            f"• {inc_label}\n"
-            f"• Neue monatliche Nettokaltmiete: {new_cold:.2f} €\n\n"
-            f"Die monatliche Betriebskostenvorauszahlung in Höhe von {cur_nk:.2f} € bleibt hiervon unberührt. "
-            f"Die neue monatliche Gesamtmiete beträgt somit {total_rent:.2f} €.\n\n"
-            f"Wir bitten Sie höflich, der Mieterhöhung gemäß § 558b Abs. 1 BGB bis zum Ablauf der gesetzlichen Überlegungsfrist am {deadline_date_str} schriftlich zuzustimmen und Ihre Mietzahlungen ab dem {effective_cold_str} entsprechend anzupassen.\n\n"
-            f"Für Rückfragen stehen wir Ihnen jederzeit gern zur Verfügung."
-        )
+        if is_private:
+            body = (
+                f"{sal_greeting},\n\n"
+                f"hiermit kündige ich Ihnen eine Erhöhung der monatlichen Nettokaltmiete für die von Ihnen angemietete Wohnung ({unit_str}) an.\n\n"
+                f"Gemäß § 558 BGB bin ich berechtigt, die Miete bis zur ortsüblichen Vergleichsmiete anzupassen. "
+                f"Die gesetzliche Kappungsgrenze sowie die 15-monatige Wartefrist seit Mietbeginn bzw. der letzten Mieterhöhung werden dabei vollständig eingehalten.\n\n"
+                f"Zusammensetzung der Miete ab dem {effective_cold_str}:\n"
+                f"• Bisherige monatliche Nettokaltmiete: {cur_cold:.2f} €\n"
+                f"• {inc_label}\n"
+                f"• Neue monatliche Nettokaltmiete: {new_cold:.2f} €\n\n"
+                f"Die monatliche Betriebskostenvorauszahlung in Höhe von {cur_nk:.2f} € bleibt hiervon unberührt. "
+                f"Die neue monatliche Gesamtmiete beträgt somit {total_rent:.2f} €.\n\n"
+                f"Ich bitte Sie höflich, der Mieterhöhung gemäß § 558b Abs. 1 BGB bis zum Ablauf der gesetzlichen Überlegungsfrist am {deadline_date_str} schriftlich zuzustimmen und Ihre Mietzahlungen ab dem {effective_cold_str} entsprechend anzupassen.\n\n"
+                f"Für Rückfragen stehe ich Ihnen jederzeit gern zur Verfügung."
+            )
+        else:
+            body = (
+                f"{sal_greeting},\n\n"
+                f"hiermit kündigen wir Ihnen eine Erhöhung der monatlichen Nettokaltmiete für die von Ihnen angemietete Wohnung ({unit_str}) an.\n\n"
+                f"Gemäß § 558 BGB sind wir berechtigt, die Miete bis zur ortsüblichen Vergleichsmiete anzupassen. "
+                f"Die gesetzliche Kappungsgrenze sowie die 15-monatige Wartefrist seit Mietbeginn bzw. der letzten Mieterhöhung werden dabei vollständig eingehalten.\n\n"
+                f"Zusammensetzung der Miete ab dem {effective_cold_str}:\n"
+                f"• Bisherige monatliche Nettokaltmiete: {cur_cold:.2f} €\n"
+                f"• {inc_label}\n"
+                f"• Neue monatliche Nettokaltmiete: {new_cold:.2f} €\n\n"
+                f"Die monatliche Betriebskostenvorauszahlung in Höhe von {cur_nk:.2f} € bleibt hiervon unberührt. "
+                f"Die neue monatliche Gesamtmiete beträgt somit {total_rent:.2f} €.\n\n"
+                f"Wir bitten Sie höflich, der Mieterhöhung gemäß § 558b Abs. 1 BGB bis zum Ablauf der gesetzlichen Überlegungsfrist am {deadline_date_str} schriftlich zuzustimmen und Ihre Mietzahlungen ab dem {effective_cold_str} entsprechend anzupassen.\n\n"
+                f"Für Rückfragen stehen wir Ihnen jederzeit gern zur Verfügung."
+            )
         return {"subject": subject, "body": body}
 
     # 2. Kaltmietsenkung
@@ -437,20 +539,36 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
         new_cold = max(0.0, cur_cold - diff)
         total_rent = new_cold + cur_nk
         subject = "Mitteilung über eine Herabsetzung der monatlichen Nettokaltmiete"
-        body = (
-            f"{sal_greeting},\n\n"
-            f"bezugnehmend auf das Mietverhältnis für die Wohnung ({unit_str}) möchten wir Ihnen eine erfreuliche Anpassung Ihrer monatlichen Nettokaltmiete mitteilen.\n\n"
-            f"Wir senken Ihre monatliche Nettokaltmiete zum rechtlich nächstmöglichen Zeitpunkt ab dem {effective_nk_str} um {diff:.2f} €.\n\n"
-            f"Zusammensetzung der Miete ab dem {effective_nk_str}:\n"
-            f"• Bisherige monatliche Nettokaltmiete: {cur_cold:.2f} €\n"
-            f"• {dec_label}\n"
-            f"• Neue monatliche Nettokaltmiete: {new_cold:.2f} €\n\n"
-            f"Die monatliche Betriebskostenvorauszahlung in Höhe von {cur_nk:.2f} € bleibt hiervon unberührt. "
-            f"Die neue monatliche Gesamtmiete beläuft sich somit auf {total_rent:.2f} €.\n\n"
-            f"Bitte passen Sie Ihren Dauerauftrag bzw. Ihre monatliche Banküberweisung zum genannten Stichtag entsprechend an. "
-            f"Falls Sie uns ein SEPA-Lastschriftmandat erteilt haben, buchen wir den reduzierten Betrag ab diesem Zeitpunkt automatisch ab.\n\n"
-            f"Für Rückfragen stehen wir Ihnen jederzeit gern zur Verfügung."
-        )
+        if is_private:
+            body = (
+                f"{sal_greeting},\n\n"
+                f"bezugnehmend auf das Mietverhältnis für die Wohnung ({unit_str}) möchte ich Ihnen eine erfreuliche Anpassung Ihrer monatlichen Nettokaltmiete mitteilen.\n\n"
+                f"Ich senke Ihre monatliche Nettokaltmiete zum rechtlich nächstmöglichen Zeitpunkt ab dem {effective_nk_str} um {diff:.2f} €.\n\n"
+                f"Zusammensetzung der Miete ab dem {effective_nk_str}:\n"
+                f"• Bisherige monatliche Nettokaltmiete: {cur_cold:.2f} €\n"
+                f"• {dec_label}\n"
+                f"• Neue monatliche Nettokaltmiete: {new_cold:.2f} €\n\n"
+                f"Die monatliche Betriebskostenvorauszahlung in Höhe von {cur_nk:.2f} € bleibt hiervon unberührt. "
+                f"Die neue monatliche Gesamtmiete beläuft sich somit auf {total_rent:.2f} €.\n\n"
+                f"Bitte passen Sie Ihren Dauerauftrag bzw. Ihre monatliche Banküberweisung zum genannten Stichtag entsprechend an. "
+                f"Falls Sie mir ein SEPA-Lastschriftmandat erteilt haben, buche ich den reduzierten Betrag ab diesem Zeitpunkt automatisch ab.\n\n"
+                f"Für Rückfragen stehe ich Ihnen jederzeit gern zur Verfügung."
+            )
+        else:
+            body = (
+                f"{sal_greeting},\n\n"
+                f"bezugnehmend auf das Mietverhältnis für die Wohnung ({unit_str}) möchten wir Ihnen eine erfreuliche Anpassung Ihrer monatlichen Nettokaltmiete mitteilen.\n\n"
+                f"Wir senken Ihre monatliche Nettokaltmiete zum rechtlich nächstmöglichen Zeitpunkt ab dem {effective_nk_str} um {diff:.2f} €.\n\n"
+                f"Zusammensetzung der Miete ab dem {effective_nk_str}:\n"
+                f"• Bisherige monatliche Nettokaltmiete: {cur_cold:.2f} €\n"
+                f"• {dec_label}\n"
+                f"• Neue monatliche Nettokaltmiete: {new_cold:.2f} €\n\n"
+                f"Die monatliche Betriebskostenvorauszahlung in Höhe von {cur_nk:.2f} € bleibt hiervon unberührt. "
+                f"Die neue monatliche Gesamtmiete beläuft sich somit auf {total_rent:.2f} €.\n\n"
+                f"Bitte passen Sie Ihren Dauerauftrag bzw. Ihre monatliche Banküberweisung zum genannten Stichtag entsprechend an. "
+                f"Falls Sie uns ein SEPA-Lastschriftmandat erteilt haben, buchen wir den reduzierten Betrag ab diesem Zeitpunkt automatisch ab.\n\n"
+                f"Für Rückfragen stehen wir Ihnen jederzeit gern zur Verfügung."
+            )
         return {"subject": subject, "body": body}
 
     # 3. Nebenkostensenkung (§ 560 Abs. 4 BGB)
@@ -465,20 +583,36 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
         new_nk = max(0.0, cur_nk - diff)
         total_rent = cur_cold + new_nk
         subject = "Anpassung der monatlichen Betriebskostenvorauszahlung gemäß § 560 Abs. 4 BGB"
-        body = (
-            f"{sal_greeting},\n\n"
-            f"bezugnehmend auf das bestehende Mietverhältnis für die Wohnung ({unit_str}) möchten wir Ihnen eine erfreuliche Anpassung Ihrer Betriebskostenvorauszahlung mitteilen.\n\n"
-            f"Gemäß § 560 Abs. 4 BGB sind die Vertragsparteien berechtigt, nach einer Abrechnung bzw. bei veränderten Kostenprognosen die Vorauszahlungen auf eine angemessene Höhe anzupassen. "
-            f"Da die laufenden Betriebskosten geringer ausfallen, senken wir Ihre monatliche Vorauszahlung zum rechtlich nächstmöglichen Zeitpunkt (ab dem {effective_nk_str}).\n\n"
-            f"Zusammensetzung ab dem {effective_nk_str}:\n"
-            f"• Bisherige monatliche Vorauszahlung: {cur_nk:.2f} €\n"
-            f"• {dec_label}\n"
-            f"• Neue monatliche Betriebskostenvorauszahlung: {new_nk:.2f} €\n\n"
-            f"Ihre monatliche Nettokaltmiete in Höhe von {cur_cold:.2f} € bleibt hiervon unberührt. "
-            f"Die neue monatliche Gesamtmiete beläuft sich somit auf {total_rent:.2f} €.\n\n"
-            f"Bitte passen Sie Ihren Dauerauftrag bzw. Ihre monatliche Banküberweisung zum genannten Stichtag entsprechend an. Falls Sie uns ein SEPA-Lastschriftmandat erteilt haben, buchen wir den reduzierten Betrag ab diesem Zeitpunkt automatisch ab.\n\n"
-            f"Für Rückfragen stehen wir Ihnen jederzeit gern zur Verfügung."
-        )
+        if is_private:
+            body = (
+                f"{sal_greeting},\n\n"
+                f"bezugnehmend auf das bestehende Mietverhältnis für die Wohnung ({unit_str}) möchte ich Ihnen eine erfreuliche Anpassung Ihrer Betriebskostenvorauszahlung mitteilen.\n\n"
+                f"Gemäß § 560 Abs. 4 BGB sind die Vertragsparteien berechtigt, nach einer Abrechnung bzw. bei veränderten Kostenprognosen die Vorauszahlungen auf eine angemessene Höhe anzupassen. "
+                f"Da die laufenden Betriebskosten geringer ausfallen, senke ich Ihre monatliche Vorauszahlung zum rechtlich nächstmöglichen Zeitpunkt (ab dem {effective_nk_str}).\n\n"
+                f"Zusammensetzung ab dem {effective_nk_str}:\n"
+                f"• Bisherige monatliche Vorauszahlung: {cur_nk:.2f} €\n"
+                f"• {dec_label}\n"
+                f"• Neue monatliche Betriebskostenvorauszahlung: {new_nk:.2f} €\n\n"
+                f"Ihre monatliche Nettokaltmiete in Höhe von {cur_cold:.2f} € bleibt hiervon unberührt. "
+                f"Die neue monatliche Gesamtmiete beläuft sich somit auf {total_rent:.2f} €.\n\n"
+                f"Bitte passen Sie Ihren Dauerauftrag bzw. Ihre monatliche Banküberweisung zum genannten Stichtag entsprechend an. Falls Sie mir ein SEPA-Lastschriftmandat erteilt haben, buche ich den reduzierten Betrag ab diesem Zeitpunkt automatisch ab.\n\n"
+                f"Für Rückfragen stehe ich Ihnen jederzeit gern zur Verfügung."
+            )
+        else:
+            body = (
+                f"{sal_greeting},\n\n"
+                f"bezugnehmend auf das bestehende Mietverhältnis für die Wohnung ({unit_str}) möchten wir Ihnen eine erfreuliche Anpassung Ihrer Betriebskostenvorauszahlung mitteilen.\n\n"
+                f"Gemäß § 560 Abs. 4 BGB sind die Vertragsparteien berechtigt, nach einer Abrechnung bzw. bei veränderten Kostenprognosen die Vorauszahlungen auf eine angemessene Höhe anzupassen. "
+                f"Da die laufenden Betriebskosten geringer ausfallen, senken wir Ihre monatliche Vorauszahlung zum rechtlich nächstmöglichen Zeitpunkt (ab dem {effective_nk_str}).\n\n"
+                f"Zusammensetzung ab dem {effective_nk_str}:\n"
+                f"• Bisherige monatliche Vorauszahlung: {cur_nk:.2f} €\n"
+                f"• {dec_label}\n"
+                f"• Neue monatliche Betriebskostenvorauszahlung: {new_nk:.2f} €\n\n"
+                f"Ihre monatliche Nettokaltmiete in Höhe von {cur_cold:.2f} € bleibt hiervon unberührt. "
+                f"Die neue monatliche Gesamtmiete beläuft sich somit auf {total_rent:.2f} €.\n\n"
+                f"Bitte passen Sie Ihren Dauerauftrag bzw. Ihre monatliche Banküberweisung zum genannten Stichtag entsprechend an. Falls Sie uns ein SEPA-Lastschriftmandat erteilt haben, buchen wir den reduzierten Betrag ab diesem Zeitpunkt automatisch ab.\n\n"
+                f"Für Rückfragen stehen wir Ihnen jederzeit gern zur Verfügung."
+            )
         return {"subject": subject, "body": body}
 
     # 4. Nebenkostenerhöhung (§ 560 Abs. 4 BGB)
@@ -493,59 +627,107 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
         new_nk = cur_nk + diff
         total_rent = cur_cold + new_nk
         subject = "Anpassung der monatlichen Betriebskostenvorauszahlung gemäß § 560 Abs. 4 BGB"
-        body = (
-            f"{sal_greeting},\n\n"
-            f"bezugnehmend auf das Mietverhältnis für die Wohnung ({unit_str}) teilen wir Ihnen hiermit eine Anpassung der monatlichen Vorauszahlungen auf die Betriebskosten mit.\n\n"
-            f"Gemäß § 560 Abs. 4 BGB passen wir die monatliche Vorauszahlung an die gestiegenen Bewirtschaftungskosten an, um hohe Nachzahlungen bei der nächsten Jahresabrechnung zu vermeiden. "
-            f"Die Anpassung erfolgt zum rechtlich nächstmöglichen Zeitpunkt ab dem {effective_nk_str} (auf die Erklärung folgender übernächster Monatserster).\n\n"
-            f"Übersicht der Anpassung:\n"
-            f"• Bisherige Vorauszahlung: {cur_nk:.2f} €\n"
-            f"• {inc_label}\n"
-            f"• Neue monatliche Betriebskostenvorauszahlung: {new_nk:.2f} €\n\n"
-            f"Die Nettokaltmiete ({cur_cold:.2f} €) bleibt unverändert. Die neue monatliche Gesamtmiete beträgt somit {total_rent:.2f} €.\n\n"
-            f"Bitte passen Sie Ihre Zahlungsanweisung zum genannten Termin an."
-        )
+        if is_private:
+            body = (
+                f"{sal_greeting},\n\n"
+                f"bezugnehmend auf das Mietverhältnis für die Wohnung ({unit_str}) teile ich Ihnen hiermit eine Anpassung der monatlichen Vorauszahlungen auf die Betriebskosten mit.\n\n"
+                f"Gemäß § 560 Abs. 4 BGB passe ich die monatliche Vorauszahlung an die gestiegenen Bewirtschaftungskosten an, um hohe Nachzahlungen bei der nächsten Jahresabrechnung zu vermeiden. "
+                f"Die Anpassung erfolgt zum rechtlich nächstmöglichen Zeitpunkt ab dem {effective_nk_str} (auf die Erklärung folgender übernächster Monatserster).\n\n"
+                f"Übersicht der Anpassung:\n"
+                f"• Bisherige Vorauszahlung: {cur_nk:.2f} €\n"
+                f"• {inc_label}\n"
+                f"• Neue monatliche Betriebskostenvorauszahlung: {new_nk:.2f} €\n\n"
+                f"Die Nettokaltmiete ({cur_cold:.2f} €) bleibt unverändert. Die neue monatliche Gesamtmiete beträgt somit {total_rent:.2f} €.\n\n"
+                f"Bitte passen Sie Ihre Zahlungsanweisung zum genannten Termin an.\n\n"
+                f"Für Rückfragen stehe ich Ihnen jederzeit gern zur Verfügung."
+            )
+        else:
+            body = (
+                f"{sal_greeting},\n\n"
+                f"bezugnehmend auf das Mietverhältnis für die Wohnung ({unit_str}) teilen wir Ihnen hiermit eine Anpassung der monatlichen Vorauszahlungen auf die Betriebskosten mit.\n\n"
+                f"Gemäß § 560 Abs. 4 BGB passen wir die monatliche Vorauszahlung an die gestiegenen Bewirtschaftungskosten an, um hohe Nachzahlungen bei der nächsten Jahresabrechnung zu vermeiden. "
+                f"Die Anpassung erfolgt zum rechtlich nächstmöglichen Zeitpunkt ab dem {effective_nk_str} (auf die Erklärung folgender übernächster Monatserster).\n\n"
+                f"Übersicht der Anpassung:\n"
+                f"• Bisherige Vorauszahlung: {cur_nk:.2f} €\n"
+                f"• {inc_label}\n"
+                f"• Neue monatliche Betriebskostenvorauszahlung: {new_nk:.2f} €\n\n"
+                f"Die Nettokaltmiete ({cur_cold:.2f} €) bleibt unverändert. Die neue monatliche Gesamtmiete beträgt somit {total_rent:.2f} €.\n\n"
+                f"Bitte passen Sie Ihre Zahlungsanweisung zum genannten Termin an."
+            )
         return {"subject": subject, "body": body}
 
     # 5. Bankverbindung / Kontaktdaten
     if any(w in prompt_lower for w in ["bankverbindung", "konto", "iban", "kontaktdaten"]):
         subject = "Wichtige Mitteilung: Aktualisierung der Bankverbindung für Mietzahlungen"
-        body = (
-            f"{sal_greeting},\n\n"
-            f"wir möchten Sie darüber informieren, dass sich unsere Bankverbindung für die Überweisung der monatlichen Miet- und Nebenkostenzahlungen {unit_str} ändert.\n\n"
-            f"Bitte richten Sie Ihre Zahlungen ab dem kommenden Monatsersten an folgendes Konto:\n"
-            f"• Kontoinhaber: {landlord_holder}\n"
-            f"• IBAN: {landlord_iban}\n"
-            f"• BIC: {landlord_bic}\n"
-            f"• Kreditinstitut: {landlord_bank}\n"
-            f"• Verwendungszweck: Miete {unit_str}\n\n"
-            f"Sollten Sie einen Dauerauftrag eingerichtet haben, passen Sie diesen bitte rechtzeitig an. Falls Sie uns ein SEPA-Lastschriftmandat erteilt haben, buchen wir den Betrag ab diesem Zeitpunkt automatisch vom neuen Konto ab.\n\n"
-            f"Vielen Dank für Ihre Unterstützung."
-        )
+        if is_private:
+            body = (
+                f"{sal_greeting},\n\n"
+                f"ich möchte Sie darüber informieren, dass sich meine Bankverbindung für die Überweisung der monatlichen Miet- und Nebenkostenzahlungen {unit_str} ändert.\n\n"
+                f"Bitte richten Sie Ihre Zahlungen ab dem kommenden Monatsersten an folgendes Konto:\n"
+                f"• Kontoinhaber: {landlord_holder}\n"
+                f"• IBAN: {landlord_iban}\n"
+                f"• BIC: {landlord_bic}\n"
+                f"• Kreditinstitut: {landlord_bank}\n"
+                f"• Verwendungszweck: Miete {unit_str}\n\n"
+                f"Sollten Sie einen Dauerauftrag eingerichtet haben, passen Sie diesen bitte rechtzeitig an. Falls Sie mir ein SEPA-Lastschriftmandat erteilt haben, buche ich den Betrag ab diesem Zeitpunkt automatisch vom neuen Konto ab.\n\n"
+                f"Vielen Dank für Ihre Unterstützung."
+            )
+        else:
+            body = (
+                f"{sal_greeting},\n\n"
+                f"wir möchten Sie darüber informieren, dass sich unsere Bankverbindung für die Überweisung der monatlichen Miet- und Nebenkostenzahlungen {unit_str} ändert.\n\n"
+                f"Bitte richten Sie Ihre Zahlungen ab dem kommenden Monatsersten an folgendes Konto:\n"
+                f"• Kontoinhaber: {landlord_holder}\n"
+                f"• IBAN: {landlord_iban}\n"
+                f"• BIC: {landlord_bic}\n"
+                f"• Kreditinstitut: {landlord_bank}\n"
+                f"• Verwendungszweck: Miete {unit_str}\n\n"
+                f"Sollten Sie einen Dauerauftrag eingerichtet haben, passen Sie diesen bitte rechtzeitig an. Falls Sie uns ein SEPA-Lastschriftmandat erteilt haben, buchen wir den Betrag ab diesem Zeitpunkt automatisch vom neuen Konto ab.\n\n"
+                f"Vielen Dank für Ihre Unterstützung."
+            )
         return {"subject": subject, "body": body}
 
     # 6. Handwerker / Wartung
     if any(w in prompt_lower for w in ["handwerker", "wartung", "reparatur", "begehung", "ablesung"]):
         subject = "Ankündigung von Handwerker- und Instandhaltungsarbeiten"
         scope_str = unit_str if is_all_tenants else f"in Ihrer Wohnanlage ({unit_str})"
-        body = (
-            f"{sal_greeting},\n\n"
-            f"wir kündigen Ihnen hiermit anstehende Arbeiten {scope_str} an.\n\n"
-            f"Grund / Details: {user_prompt}\n\n"
-            f"Bitte gewähren Sie den beauftragten Handwerkern zum vereinbarten Termin ungehinderten Zutritt zu den entsprechenden Bereichen. "
-            f"Sollten Sie Fragen oder Terminkollisionen haben, bitten wir um rechtzeitige Benachrichtigung unserer Hausverwaltung.\n\n"
-            f"Vielen Dank für Ihre Unterstützung und Ihr Verständnis."
-        )
+        contact_str = f"unter Tel. {landlord_phone}" if (is_private and landlord_phone) else "unserer Hausverwaltung"
+        if is_private:
+            body = (
+                f"{sal_greeting},\n\n"
+                f"ich kündige Ihnen hiermit anstehende Arbeiten {scope_str} an.\n\n"
+                f"Grund / Details: {user_prompt}\n\n"
+                f"Bitte gewähren Sie den beauftragten Handwerkern zum vereinbarten Termin ungehinderten Zutritt zu den entsprechenden Bereichen. "
+                f"Sollten Sie Fragen oder Terminkollisionen haben, bitte ich um rechtzeitige Benachrichtigung ({contact_str}).\n\n"
+                f"Vielen Dank für Ihre Unterstützung und Ihr Verständnis."
+            )
+        else:
+            body = (
+                f"{sal_greeting},\n\n"
+                f"wir kündigen Ihnen hiermit anstehende Arbeiten {scope_str} an.\n\n"
+                f"Grund / Details: {user_prompt}\n\n"
+                f"Bitte gewähren Sie den beauftragten Handwerkern zum vereinbarten Termin ungehinderten Zutritt zu den entsprechenden Bereichen. "
+                f"Sollten Sie Fragen oder Terminkollisionen haben, bitten wir um rechtzeitige Benachrichtigung ({contact_str}).\n\n"
+                f"Vielen Dank für Ihre Unterstützung und Ihr Verständnis."
+            )
         return {"subject": subject, "body": body}
 
     # Standard
-    subject = "Mitteilung Ihrer Hausverwaltung"
-    body = (
-        f"{sal_greeting},\n\n"
-        f"wir wenden uns heute mit einer Mitteilung {unit_str} an Sie.\n\n"
-        f"{user_prompt}\n\n"
-        f"Bei Rückfragen stehen wir Ihnen jederzeit gerne zur Verfügung."
-    )
+    subject = f"Mitteilung Ihres Vermieters ({landlord_name})" if is_private else "Mitteilung Ihrer Hausverwaltung"
+    if is_private:
+        body = (
+            f"{sal_greeting},\n\n"
+            f"ich wende mich heute mit einer Mitteilung {unit_str} an Sie.\n\n"
+            f"{user_prompt}\n\n"
+            f"Bei Rückfragen stehe ich Ihnen jederzeit gerne zur Verfügung."
+        )
+    else:
+        body = (
+            f"{sal_greeting},\n\n"
+            f"wir wenden uns heute mit einer Mitteilung {unit_str} an Sie.\n\n"
+            f"{user_prompt}\n\n"
+            f"Bei Rückfragen stehen wir Ihnen jederzeit gerne zur Verfügung."
+        )
     return {"subject": subject, "body": body}
 
 def parse_user_intent_ollama(user_prompt: str, model: str = "llama3") -> Dict[str, Any]:
@@ -758,12 +940,19 @@ def handle_agent_request(user_prompt: str, model: str = "llama3") -> Dict[str, A
             }
 
         settings = get_all_settings()
-        sender_name = settings.get("landlord_name", "Hausverwaltung Sonnenhang")
+        is_private = settings.get("landlord_type", "private") == "private"
+        default_sender = "Kirdar Karadag" if is_private else "Hausverwaltung Sonnenhang"
+        sender_name = settings.get("landlord_name", default_sender)
+        if is_private and sender_name == "Hausverwaltung Sonnenhang":
+            sender_name = settings.get("landlord_contact_person") or "Kirdar Karadag"
+
         sender_street = settings.get("landlord_street", "Lindenstraße 14")
         sender_city = f"{settings.get('landlord_zip', '10115')} {settings.get('landlord_city', 'Berlin')}".strip()
         sender_phone = settings.get("landlord_phone", "+49 30 12345678")
-        sender_email = settings.get("landlord_email", "verwaltung@sonnenhang.de")
-        sign_person = settings.get("landlord_contact_person") or settings.get("default_signature_title", sender_name)
+        sender_email = settings.get("landlord_email", "kirdar@karadag.de" if is_private else "verwaltung@sonnenhang.de")
+        sign_person = settings.get("landlord_contact_person")
+        if not sign_person or (is_private and "hausverwaltung" in sign_person.lower()):
+            sign_person = f"{sender_name}\n(Vermieter)" if is_private else sender_name
 
         if is_all_tenants:
             from agent.tools import get_all_properties
@@ -813,7 +1002,8 @@ def handle_agent_request(user_prompt: str, model: str = "llama3") -> Dict[str, A
             tenant_info=db_tenant,
             model=model
         )
-        subject = letter_content.get("subject", "Mitteilung der Hausverwaltung")
+        default_subject = f"Mitteilung Ihres Vermieters ({sender_name})" if is_private else "Mitteilung der Hausverwaltung"
+        subject = letter_content.get("subject", default_subject)
         letter_text = letter_content.get("body", "")
 
         # 1. PDF nach DIN 5008:2020 Form B generieren
@@ -856,7 +1046,7 @@ def handle_agent_request(user_prompt: str, model: str = "llama3") -> Dict[str, A
             f"---\n\n"
             f"{clean_body}\n\n"
             f"Mit freundlichen Grüßen\n\n\n"
-            f"**{sender_name}**\n\n"
+            f"**{sender_name}**" + (" *(Vermieter)*\n\n" if is_private else "\n\n") +
             f"---\n\n"
             f"📥 *Das Dokument wurde nach der offiziellen **DIN 5008:2020 (Form B)** als druckfertiges **PDF** und editierbares **Word / DOCX** (kompatibel mit MS Word & LibreOffice) generiert.*"
         )

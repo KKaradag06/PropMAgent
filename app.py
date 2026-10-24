@@ -205,6 +205,98 @@ st.markdown("""
             border-color: #334155;
         }
     }
+
+    /* Sidebar Navigation als moderne, großflächige Bereiche (Kacheln/Cards) */
+    div[data-testid="stSidebar"] div[data-testid="stRadio"] {
+        width: 100% !important;
+    }
+    div[data-testid="stSidebar"] div[data-testid="stRadio"] > div {
+        gap: 12px !important;
+        width: 100% !important;
+    }
+    div[data-testid="stSidebar"] div[data-testid="stRadio"] label {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: flex-start !important;
+        width: 100% !important;
+        padding: 13px 15px !important;
+        margin: 0 !important;
+        border-radius: 12px !important;
+        border: 1px solid #e2e8f0 !important;
+        background-color: #ffffff !important;
+        cursor: pointer !important;
+        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+    }
+    /* Kleinen Radio-Punkt ausblenden */
+    div[data-testid="stSidebar"] div[data-testid="stRadio"] label > div:first-child {
+        display: none !important;
+    }
+    /* Titel des Bereichs */
+    div[data-testid="stSidebar"] div[data-testid="stRadio"] label > div:nth-child(2) {
+        width: 100% !important;
+        font-size: 0.95rem !important;
+        font-weight: 600 !important;
+        color: #0f172a !important;
+        line-height: 1.35 !important;
+    }
+    /* Caption / Unterzeile des Bereichs */
+    div[data-testid="stSidebar"] div[data-testid="stRadio"] label > div:nth-child(3),
+    div[data-testid="stSidebar"] div[data-testid="stRadio"] label [data-testid="stCaptionContainer"] {
+        font-size: 0.74rem !important;
+        font-weight: 400 !important;
+        color: #64748b !important;
+        margin-top: 3px !important;
+        line-height: 1.25 !important;
+    }
+    /* Hover-Effekt */
+    div[data-testid="stSidebar"] div[data-testid="stRadio"] label:hover {
+        background-color: #f8fafc !important;
+        border-color: #94a3b8 !important;
+        transform: translateY(-1.5px) !important;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.07) !important;
+    }
+    /* Aktiver ausgewählter Bereich */
+    div[data-testid="stSidebar"] div[data-testid="stRadio"] label:has(input:checked) {
+        background-color: #eff6ff !important;
+        border-color: #3b82f6 !important;
+        box-shadow: 0 0 0 1.5px #3b82f6, 0 4px 12px rgba(37, 99, 235, 0.12) !important;
+    }
+    div[data-testid="stSidebar"] div[data-testid="stRadio"] label:has(input:checked) > div:nth-child(2) {
+        color: #1d4ed8 !important;
+    }
+    div[data-testid="stSidebar"] div[data-testid="stRadio"] label:has(input:checked) [data-testid="stCaptionContainer"] {
+        color: #2563eb !important;
+    }
+    @media (prefers-color-scheme: dark) {
+        div[data-testid="stSidebar"] div[data-testid="stRadio"] label {
+            background-color: #1e293b !important;
+            border-color: #334155 !important;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3) !important;
+        }
+        div[data-testid="stSidebar"] div[data-testid="stRadio"] label > div:nth-child(2) {
+            color: #f1f5f9 !important;
+        }
+        div[data-testid="stSidebar"] div[data-testid="stRadio"] label [data-testid="stCaptionContainer"] {
+            color: #94a3b8 !important;
+        }
+        div[data-testid="stSidebar"] div[data-testid="stRadio"] label:hover {
+            background-color: #263349 !important;
+            border-color: #64748b !important;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35) !important;
+        }
+        div[data-testid="stSidebar"] div[data-testid="stRadio"] label:has(input:checked) {
+            background-color: #1e3a5f !important;
+            border-color: #60a5fa !important;
+            box-shadow: 0 0 0 1.5px #60a5fa, 0 4px 14px rgba(37, 99, 235, 0.25) !important;
+        }
+        div[data-testid="stSidebar"] div[data-testid="stRadio"] label:has(input:checked) > div:nth-child(2) {
+            color: #93c5fd !important;
+        }
+        div[data-testid="stSidebar"] div[data-testid="stRadio"] label:has(input:checked) [data-testid="stCaptionContainer"] {
+            color: #bfdbfe !important;
+        }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -216,8 +308,14 @@ with st.sidebar:
     
     menu = st.radio(
         "Navigation",
-        ["KI-Assistent & Schriftverkehr", "Liegenschaften & Mieter", "Betriebskosten & Finanzen"],
-        index=0
+        options=["KI-Assistent & Schriftverkehr", "Liegenschaften & Mieter", "Betriebskosten & Finanzen"],
+        captions=["Briefe, Vorlagen & KI-Chat", "Objekte, Einheiten & Mietverträge", "Kostenaufstellung & Abrechnungen"],
+        format_func=lambda x: {
+            "KI-Assistent & Schriftverkehr": "🤖  KI-Assistent & Schriftverkehr",
+            "Liegenschaften & Mieter": "🏢  Liegenschaften & Mieter",
+            "Betriebskosten & Finanzen": "📊  Betriebskosten & Finanzen"
+        }.get(x, x),
+        label_visibility="collapsed"
     )
 
     current_settings = get_all_settings()
@@ -270,13 +368,50 @@ def render_settings_page():
         st.subheader("Vermieterdaten & Bankverbindung")
         st.caption("Diese Stammdaten werden als Absender für alle formellen Briefe, Mietanpassungen und Nebenkostenabrechnungen nach DIN 5008 sowie von der KI verwendet.")
 
+        cur_type = current_settings.get("landlord_type", "private")
+        type_options = ["Privater Vermieter", "Hausverwaltung"]
+        type_idx = 1 if cur_type in ["property_management", "Hausverwaltung"] else 0
+
         with st.form("form_landlord_settings"):
+            st.markdown("##### 👤 Organisationsform / Vermieter-Typ")
+            selected_type = st.segmented_control(
+                "Typ auswählen",
+                type_options,
+                default=type_options[type_idx],
+                key="settings_landlord_type_selector",
+                label_visibility="collapsed"
+            )
+            is_private = (selected_type == "Privater Vermieter")
+
+            if is_private:
+                st.info("ℹ️ **Privater Vermieter ausgewählt:** In all deinen Anschreiben, Abrechnungen und KI-Briefen wird ausschließlich dein persönlicher Name als Vermieter verwendet. Begriffe wie 'Hausverwaltung' werden vollständig weggelassen.")
+            else:
+                st.info("ℹ️ **Hausverwaltung ausgewählt:** In Schreiben wird der Firmenname der Hausverwaltung sowie optional der zuständige Ansprechpartner genannt.")
+
             st.markdown("##### 🏢 Absender & Verwaltung")
             col_lname, col_lperson = st.columns(2)
             with col_lname:
-                new_lname = st.text_input("Name der Hausverwaltung / Vermieter *", value=current_settings.get("landlord_name", "Hausverwaltung Sonnenhang"))
+                name_label = "Vollständiger Name des Vermieters *" if is_private else "Name der Hausverwaltung / Firma *"
+                name_placeholder = "z. B. Kirdar Karadag" if is_private else "z. B. Hausverwaltung Sonnenhang"
+                def_name = current_settings.get("landlord_name", "Kirdar Karadag" if is_private else "Hausverwaltung Sonnenhang")
+                if is_private and def_name == "Hausverwaltung Sonnenhang":
+                    def_name = current_settings.get("landlord_contact_person") or "Kirdar Karadag"
+                new_lname = st.text_input(name_label, value=def_name, placeholder=name_placeholder)
+
             with col_lperson:
-                new_lperson = st.text_input("Ansprechpartner / Unterzeichner (Druckschrift)", value=current_settings.get("landlord_contact_person", "Kirdar Karadag"))
+                if is_private:
+                    new_lperson = st.text_input(
+                        "Zusatz zur Unterschrift (optional)",
+                        value=current_settings.get("landlord_contact_person", "") if current_settings.get("landlord_contact_person") != "Hausverwaltung Sonnenhang" else "",
+                        placeholder="z. B. Vermieter (oder leer lassen)",
+                        help="Wird unter deinem Namen bei der Unterschrift aufgeführt."
+                    )
+                else:
+                    new_lperson = st.text_input(
+                        "Ansprechpartner / Sachbearbeiter",
+                        value=current_settings.get("landlord_contact_person", "Kirdar Karadag"),
+                        placeholder="z. B. Sabine Meier"
+                    )
 
             st.markdown("##### 📍 Anschrift (DIN 5008 Fensterkuvert)")
             col_lstreet, col_lzip, col_lcity = st.columns([2, 1, 1.5])
@@ -292,12 +427,15 @@ def render_settings_page():
             with col_lphone:
                 new_lphone = st.text_input("Telefonnummer", value=current_settings.get("landlord_phone", "+49 30 12345678"))
             with col_lemail:
-                new_lemail = st.text_input("E-Mail-Adresse", value=current_settings.get("landlord_email", "verwaltung@sonnenhang.de"))
+                new_lemail = st.text_input("E-Mail-Adresse", value=current_settings.get("landlord_email", "kirdar@karadag.de" if is_private else "verwaltung@sonnenhang.de"))
 
             st.markdown("##### 💳 Bankverbindung für Mietzahlungen & Nachzahlungen")
             col_lholder, col_lbank = st.columns(2)
             with col_lholder:
-                new_lholder = st.text_input("Kontoinhaber", value=current_settings.get("landlord_account_holder", current_settings.get("landlord_name", "Hausverwaltung Sonnenhang")))
+                def_holder = current_settings.get("landlord_account_holder", def_name)
+                if is_private and def_holder == "Hausverwaltung Sonnenhang":
+                    def_holder = def_name
+                new_lholder = st.text_input("Kontoinhaber", value=def_holder)
             with col_lbank:
                 new_lbank = st.text_input("Kreditinstitut (Bankname)", value=current_settings.get("landlord_bank_name", "Berliner Sparkasse"))
 
@@ -311,7 +449,14 @@ def render_settings_page():
 
             save_landlord = st.form_submit_button("Vermieterdaten speichern", type="primary", use_container_width=True)
             if save_landlord:
+                new_sig_title = new_lname.strip() if is_private else (current_settings.get("default_signature_title") or "Ihre Hausverwaltung")
+                if is_private and "hausverwaltung" in new_sig_title.lower():
+                    new_sig_title = new_lname.strip()
+                elif not is_private and "vermieter" in new_sig_title.lower():
+                    new_sig_title = "Ihre Hausverwaltung"
+
                 save_settings({
+                    "landlord_type": "private" if is_private else "property_management",
                     "landlord_name": new_lname.strip(),
                     "landlord_contact_person": new_lperson.strip(),
                     "landlord_street": new_lstreet.strip(),
@@ -319,25 +464,31 @@ def render_settings_page():
                     "landlord_city": new_lcity.strip(),
                     "landlord_phone": new_lphone.strip(),
                     "landlord_email": new_lemail.strip(),
-                    "landlord_account_holder": new_lholder.strip(),
+                    "landlord_account_holder": new_lholder.strip() if new_lholder.strip() else new_lname.strip(),
                     "landlord_bank_name": new_lbank.strip(),
                     "landlord_iban": new_liban.strip(),
                     "landlord_bic": new_lbic.strip(),
-                    "landlord_tax_id": new_ltax.strip()
+                    "landlord_tax_id": new_ltax.strip(),
+                    "default_signature_title": new_sig_title
                 })
-                st.success("Vermieterdaten wurden erfolgreich gespeichert! Alle künftigen Briefe und Abrechnungen nutzen diese Angaben.")
+                st.success(f"{'Vermieterdaten' if is_private else 'Hausverwaltungsdaten'} wurden erfolgreich gespeichert!")
                 st.rerun()
 
         # Vorschau-Box
         with st.expander("Vorschau: So erscheint dein Briefkopf auf Schreiben (DIN 5008)", expanded=False):
-            v_name = current_settings.get("landlord_name", "Hausverwaltung Sonnenhang")
+            v_type_is_priv = current_settings.get("landlord_type", "private") == "private"
+            v_name = current_settings.get("landlord_name", "Kirdar Karadag" if v_type_is_priv else "Hausverwaltung Sonnenhang")
             v_str = current_settings.get("landlord_street", "Lindenstraße 14")
             v_city = f"{current_settings.get('landlord_zip', '10115')} {current_settings.get('landlord_city', 'Berlin')}"
             v_phone = current_settings.get("landlord_phone", "")
             v_email = current_settings.get("landlord_email", "")
             v_iban = current_settings.get("landlord_iban", "")
             v_bank = current_settings.get("landlord_bank_name", "")
-            
+            v_person = current_settings.get("landlord_contact_person", "")
+
+            title_badge = " (Vermieter)" if v_type_is_priv else ""
+            person_line = f"<br/>Ansprechpartner: {v_person}" if (not v_type_is_priv and v_person) else ""
+
             st.markdown(f"""
             <div style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 20px; font-family: Arial, sans-serif; color: #0f172a;">
                 <div style="font-size: 8pt; text-decoration: underline; color: #64748b; margin-bottom: 12px;">
@@ -350,7 +501,7 @@ def render_settings_page():
                         [Mieter PLZ Ort]
                     </div>
                     <div style="text-align: right; font-size: 9pt; line-height: 1.4; color: #334155;">
-                        <b>{v_name}</b><br/>
+                        <b>{v_name}</b>{title_badge}{person_line}<br/>
                         {v_str}<br/>
                         {v_city}<br/>
                         Tel.: {v_phone}<br/>
@@ -470,10 +621,14 @@ def render_settings_page():
                 idx_closing = closing_opts.index(cur_closing) if cur_closing in closing_opts else 0
                 new_closing = st.selectbox("Standard-Grußformel", closing_opts, index=idx_closing)
             with col_sig_title:
+                default_sig_fallback = "Ihr Vermieter" if current_settings.get("landlord_type", "private") == "private" else "Ihre Hausverwaltung"
+                cur_sig_val = current_settings.get("default_signature_title", default_sig_fallback)
+                if current_settings.get("landlord_type", "private") == "private" and cur_sig_val == "Ihre Hausverwaltung":
+                    cur_sig_val = "Ihr Vermieter"
                 new_sig_title = st.text_input(
                     "Standard-Unterschriftenbezeichnung",
-                    value=current_settings.get("default_signature_title", "Ihre Hausverwaltung"),
-                    help="Wird unter den 3 Leerzeilen für die handschriftliche Unterschrift gedruckt."
+                    value=cur_sig_val,
+                    help="Wird unter den 3 Leerzeilen für die handschriftliche Unterschrift gedruckt (z. B. 'Ihr Vermieter' oder 'Ihre Hausverwaltung')."
                 )
 
             st.markdown("##### 📄 Layout & Optionen")

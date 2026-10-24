@@ -27,14 +27,21 @@ def generate_formal_letter_docx(
     from database.settings import get_all_settings
     settings = get_all_settings()
 
-    sender_name = sender_name or settings.get("landlord_name", "Hausverwaltung Sonnenhang")
+    is_private = settings.get("landlord_type", "private") == "private"
+    default_sender = "Kirdar Karadag" if is_private else "Hausverwaltung Sonnenhang"
+    sender_name = sender_name or settings.get("landlord_name", default_sender)
+    if is_private and sender_name == "Hausverwaltung Sonnenhang":
+        sender_name = settings.get("landlord_contact_person") or "Kirdar Karadag"
+
     property_name = property_name or settings.get("landlord_name", "Wohnanlage Sonnenhang")
     sender_street = sender_street or settings.get("landlord_street", "Lindenstraße 14")
     sender_city = sender_city or f"{settings.get('landlord_zip', '10115')} {settings.get('landlord_city', 'Berlin')}"
     sender_phone = sender_phone or settings.get("landlord_phone", "+49 30 12345678")
-    sender_email = sender_email or settings.get("landlord_email", "verwaltung@sonnenhang.de")
+    sender_email = sender_email or settings.get("landlord_email", "kirdar@karadag.de" if is_private else "verwaltung@sonnenhang.de")
     closing_phrase = settings.get("default_closing_phrase", "Mit freundlichen Grüßen")
-    sign_title = sign_person or settings.get("landlord_contact_person") or settings.get("default_signature_title", sender_name)
+    sign_title = sign_person or settings.get("default_signature_title")
+    if not sign_title or (is_private and "hausverwaltung" in sign_title.lower()):
+        sign_title = f"{sender_name}\n(Vermieter)" if is_private else sender_name
     os.makedirs(REPORTS_DIR, exist_ok=True)
     clean_first_line = recipient_name.split("\n")[0].strip()
     clean_name = "".join(c for c in clean_first_line if c.isalnum() or c in (" ", "_", "-")).strip().replace(" ", "_")[:35]
@@ -104,13 +111,15 @@ def generate_formal_letter_docx(
     p_info.paragraph_format.space_after = Pt(0)
     p_info.paragraph_format.line_spacing = 1.0
 
-    r_snd1 = p_info.add_run(f"{sender_name}\n")
+    sender_title_txt = f"{sender_name} (Vermieter)\n" if is_private else f"{sender_name}\n"
+    r_snd1 = p_info.add_run(sender_title_txt)
     r_snd1.font.name = "Arial"
     r_snd1.font.size = Pt(10.0)
     r_snd1.font.bold = True
 
+    prop_txt = f"{property_name}\n" if (property_name and property_name != sender_name and not is_private) else ""
     info_text = (
-        f"{property_name}\n"
+        f"{prop_txt}"
         f"{sender_street}\n"
         f"{sender_city}\n"
         f"Tel.: {sender_phone}\n"

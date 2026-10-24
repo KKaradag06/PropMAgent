@@ -11,17 +11,20 @@ DEFAULT_SETTINGS: Dict[str, str] = {
     "ollama_url": "http://localhost:11434",
     "ai_temperature": "0.1",
 
+    # Vermieter-Typ: "private" (Privater Vermieter) oder "property_management" (Hausverwaltung)
+    "landlord_type": "private",
+
     # Vermieter- & Kontaktdaten (Briefkopf & Absenderzeile nach DIN 5008)
-    "landlord_name": "Hausverwaltung Sonnenhang",
+    "landlord_name": "Kirdar Karadag",
     "landlord_contact_person": "Kirdar Karadag",
     "landlord_street": "Lindenstraße 14",
     "landlord_zip": "10115",
     "landlord_city": "Berlin",
     "landlord_phone": "+49 30 12345678",
-    "landlord_email": "verwaltung@sonnenhang.de",
+    "landlord_email": "kirdar@karadag.de",
 
     # Bankverbindung für Miete und Abrechnungen
-    "landlord_account_holder": "Hausverwaltung Sonnenhang",
+    "landlord_account_holder": "Kirdar Karadag",
     "landlord_iban": "DE12 1005 0000 0123 4567 89",
     "landlord_bic": "BELADEB1XXX",
     "landlord_bank_name": "Berliner Sparkasse",
@@ -31,7 +34,7 @@ DEFAULT_SETTINGS: Dict[str, str] = {
     "default_payment_deadline_days": "14",
     "default_utility_objection_days": "30",
     "default_closing_phrase": "Mit freundlichen Grüßen",
-    "default_signature_title": "Ihre Hausverwaltung",
+    "default_signature_title": "Ihr Vermieter",
     "letter_include_bank_details": "true"
 }
 

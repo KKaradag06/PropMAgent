@@ -204,14 +204,21 @@ def generate_formal_letter_pdf(
     from database.settings import get_all_settings
     settings = get_all_settings()
 
-    sender_name = sender_name or settings.get("landlord_name", "Hausverwaltung Sonnenhang")
+    is_private = settings.get("landlord_type", "private") == "private"
+    default_sender = "Kirdar Karadag" if is_private else "Hausverwaltung Sonnenhang"
+    sender_name = sender_name or settings.get("landlord_name", default_sender)
+    if is_private and sender_name == "Hausverwaltung Sonnenhang":
+        sender_name = settings.get("landlord_contact_person") or "Kirdar Karadag"
+
     property_name = property_name or settings.get("landlord_name", "Wohnanlage Sonnenhang")
     sender_street = sender_street or settings.get("landlord_street", "Lindenstraße 14")
     sender_city = sender_city or f"{settings.get('landlord_zip', '10115')} {settings.get('landlord_city', 'Berlin')}"
     sender_phone = sender_phone or settings.get("landlord_phone", "+49 30 12345678")
-    sender_email = sender_email or settings.get("landlord_email", "verwaltung@sonnenhang.de")
+    sender_email = sender_email or settings.get("landlord_email", "kirdar@karadag.de" if is_private else "verwaltung@sonnenhang.de")
     closing_phrase = settings.get("default_closing_phrase", "Mit freundlichen Grüßen")
-    sign_title = sign_person or settings.get("landlord_contact_person") or settings.get("default_signature_title", sender_name)
+    sign_title = sign_person or settings.get("default_signature_title")
+    if not sign_title or (is_private and "hausverwaltung" in sign_title.lower()):
+        sign_title = f"{sender_name}\n(Vermieter)" if is_private else sender_name
 
     os.makedirs(REPORTS_DIR, exist_ok=True)
     
@@ -311,9 +318,11 @@ def generate_formal_letter_pdf(
     ]
 
     date_display = datetime.now().strftime("%d.%m.%Y")
+    sender_title_line = f"<b>{sender_name}</b> (Vermieter)<br/>" if is_private else f"<b>{sender_name}</b><br/>"
+    prop_line = f"{property_name}<br/>" if (property_name and property_name != sender_name and not is_private) else ""
     right_cell_html = (
-        f"<b>{sender_name}</b><br/>"
-        f"{property_name}<br/>"
+        f"{sender_title_line}"
+        f"{prop_line}"
         f"{sender_street}<br/>"
         f"{sender_city}<br/>"
         f"Tel.: {sender_phone}<br/>"
