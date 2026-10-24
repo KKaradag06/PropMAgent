@@ -36,7 +36,8 @@ def generate_formal_letter_docx(
     closing_phrase = settings.get("default_closing_phrase", "Mit freundlichen Grüßen")
     sign_title = sign_person or settings.get("landlord_contact_person") or settings.get("default_signature_title", sender_name)
     os.makedirs(REPORTS_DIR, exist_ok=True)
-    clean_name = "".join(c for c in recipient_name if c.isalnum() or c in (" ", "_", "-")).strip().replace(" ", "_")
+    clean_first_line = recipient_name.split("\n")[0].strip()
+    clean_name = "".join(c for c in clean_first_line if c.isalnum() or c in (" ", "_", "-")).strip().replace(" ", "_")[:35]
     today_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"Brief_{clean_name}_{today_str}.docx"
     docx_path = os.path.join(REPORTS_DIR, filename)

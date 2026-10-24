@@ -126,6 +126,85 @@ st.markdown("""
             background-color: #334155;
         }
     }
+
+    /* Streamlit Ladesymbol oben rechts: Wechselnde Zeichen durch klassischen Kreis-Spinner ersetzen */
+    [data-testid="stStatusWidgetRunningIcon"] {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 22px !important;
+        height: 22px !important;
+        position: relative !important;
+    }
+    [data-testid="stStatusWidgetRunningIcon"] > svg,
+    [data-testid="stStatusWidgetRunningIcon"] > img,
+    [data-testid="stStatusWidgetRunningIcon"] > span,
+    [data-testid="stStatusWidgetRunningManIcon"] {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+    }
+    [data-testid="stStatusWidgetRunningIcon"]::after {
+        content: "" !important;
+        display: block !important;
+        width: 16px !important;
+        height: 16px !important;
+        border: 2.2px solid rgba(100, 116, 139, 0.25) !important;
+        border-top-color: #2563eb !important;
+        border-radius: 50% !important;
+        animation: prop-stream-spin 0.75s linear infinite !important;
+        box-sizing: border-box !important;
+    }
+    @keyframes prop-stream-spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+    @media (prefers-color-scheme: dark) {
+        [data-testid="stStatusWidgetRunningIcon"]::after {
+            border-color: rgba(255, 255, 255, 0.2) !important;
+            border-top-color: #60a5fa !important;
+        }
+    }
+
+    /* Sidebar Footer fix am unteren Rand */
+    [data-testid="stSidebarContent"] {
+        display: flex !important;
+        flex-direction: column !important;
+        height: 100% !important;
+    }
+    .prop-sidebar-footer {
+        margin-top: auto !important;
+        padding-top: 2rem;
+        padding-bottom: 0.8rem;
+        text-align: center;
+        font-size: 0.75rem;
+        color: #64748b;
+        border-top: 1px solid rgba(226, 232, 240, 0.8);
+    }
+    .prop-sidebar-footer .prop-badge-mig {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background-color: #f1f5f9;
+        color: #1e293b;
+        padding: 4px 10px;
+        border-radius: 9999px;
+        font-size: 0.72rem;
+        font-weight: 500;
+        margin-bottom: 6px;
+        border: 1px solid #e2e8f0;
+    }
+    @media (prefers-color-scheme: dark) {
+        .prop-sidebar-footer {
+            color: #94a3b8;
+            border-top-color: rgba(51, 65, 85, 0.8);
+        }
+        .prop-sidebar-footer .prop-badge-mig {
+            background-color: #1e293b;
+            color: #f1f5f9;
+            border-color: #334155;
+        }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -145,6 +224,21 @@ with st.sidebar:
     model_name = current_settings.get("ollama_model", "llama3")
     st.markdown("---")
     st.caption(f"🤖 Aktives Modell: **{model_name}**")
+
+    current_year = datetime.now().year
+    st.markdown(f"""
+    <div class="prop-sidebar-footer">
+        <div class="prop-badge-mig">
+            🇩🇪 Made in Germany
+        </div>
+        <div style="margin-top: 2px; font-weight: 500;">
+            © {current_year} PropMAgent
+        </div>
+        <div style="font-size: 0.68rem; opacity: 0.85; margin-top: 2px;">
+            100% lokal & datenschutzkonform
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 def render_settings_page():
     # 1. Zurück-Button oben links
@@ -604,24 +698,40 @@ elif menu == "KI-Assistent & Schriftverkehr":
             )
             selected_prop_id = prop_options[selected_prop_label]
 
+        # Name der gewählten Liegenschaft für treffende Prompts
+        sel_prop_obj = next((p for p in all_props if p["property_id"] == selected_prop_id), None)
+        sel_prop_name = sel_prop_obj["name"] if sel_prop_obj else "der Liegenschaft"
+
         prop_tenants = get_tenants_by_property(selected_prop_id)
         tenant_options = {}
+
+        # Option "Alle Mieter" IMMER ganz oben an Position 1
+        all_tenants_label = "👥 Alle Mieterinnen & Mieter der Liegenschaft"
+        tenant_options[all_tenants_label] = {
+            "type": "all",
+            "name": f"alle Mieterinnen und Mieter der Liegenschaft {sel_prop_name}",
+            "display": f"Alle Mieterinnen und Mieter ({sel_prop_name})"
+        }
+
         for t in prop_tenants:
             unit_str = f" · {t['unit_number']}" if t.get("unit_number") else ""
             sal_str = t.get("salutation", "Herr")
             t_lbl = f"{t['first_name']} {t['last_name']} ({sal_str}{unit_str})"
-            tenant_options[t_lbl] = f"{t['first_name']} {t['last_name']}"
-
-        if not tenant_options:
-            tenant_options = {"(Keine Mieter in dieser Liegenschaft erfasst)": ""}
+            tenant_options[t_lbl] = {
+                "type": "single",
+                "name": f"{t['first_name']} {t['last_name']}",
+                "display": f"{t.get('salutation', 'Herr')} {t['first_name']} {t['last_name']}"
+            }
 
         with col_tenant_sel:
             selected_tenant_label = st.selectbox(
-                "Mieter auswählen (Suche nach Vor- oder Nachname)",
+                "Empfänger auswählen (Alle Mieter oder Suche nach Name)",
                 options=list(tenant_options.keys()),
                 key="qa_tenant_selector"
             )
-            tgt_t = tenant_options.get(selected_tenant_label, "")
+            tgt_entry = tenant_options.get(selected_tenant_label, {})
+            tgt_t = tgt_entry.get("name", "")
+            is_all = tgt_entry.get("type") == "all"
 
         category = st.segmented_control(
             "Bereich",
@@ -693,11 +803,15 @@ elif menu == "KI-Assistent & Schriftverkehr":
             elif sub_action == "Mietbescheinigung":
                 c_txt, c_btn = st.columns([4.5, 1.5])
                 with c_txt:
-                    st.write(f"Erstellt eine offizielle Miet- und Mietschuldenfreiheitsbescheinigung für **{tgt_t or 'den ausgewählten Mieter'}**.")
+                    display_target = f"für **{sel_prop_name}**" if is_all else f"für **{tgt_t or 'den ausgewählten Mieter'}**"
+                    st.write(f"Erstellt eine offizielle Miet- und Mietschuldenfreiheitsbescheinigung {display_target}.")
                 with c_btn:
                     if st.button("Bescheinigung erstellen", type="primary", use_container_width=True, key="btn_mb"):
                         if tgt_t:
-                            st.session_state.quick_prompt = f"Erstelle eine Miet- und Mietschuldenfreiheitsbescheinigung für {tgt_t}"
+                            if is_all:
+                                st.session_state.quick_prompt = f"Erstelle eine Vorlage für eine Miet- und Mietschuldenfreiheitsbescheinigung für die Liegenschaft {sel_prop_name}"
+                            else:
+                                st.session_state.quick_prompt = f"Erstelle eine Miet- und Mietschuldenfreiheitsbescheinigung für {tgt_t}"
                             st.session_state.scroll_to_chat = True
                             st.rerun()
 
@@ -752,7 +866,10 @@ elif menu == "KI-Assistent & Schriftverkehr":
                     st.write("")
                     if st.button("Abrechnung generieren", type="primary", use_container_width=True, key="btn_nka_bill"):
                         if tgt_t:
-                            st.session_state.quick_prompt = f"Erstelle die Nebenkostenabrechnung {int(yr_val)} für {tgt_t}"
+                            if is_all:
+                                st.session_state.quick_prompt = f"Erstelle die Nebenkostenabrechnung {int(yr_val)} für alle Mieter der Liegenschaft {sel_prop_name}"
+                            else:
+                                st.session_state.quick_prompt = f"Erstelle die Nebenkostenabrechnung {int(yr_val)} für {tgt_t}"
                             st.session_state.scroll_to_chat = True
                             st.rerun()
 
@@ -764,14 +881,14 @@ elif menu == "KI-Assistent & Schriftverkehr":
                     st.write("")
                     st.write("")
                     if st.button("Kosten anzeigen", type="primary", use_container_width=True, key="btn_ko"):
-                        st.session_state.quick_prompt = f"Zeige alle Betriebskosten für das Abrechnungsjahr {int(yr_val)}"
+                        st.session_state.quick_prompt = f"Zeige alle Betriebskosten für das Abrechnungsjahr {int(yr_val)} für die Liegenschaft {sel_prop_name}"
                         st.session_state.scroll_to_chat = True
                         st.rerun()
 
         elif category == "Andere":
             sub_action = st.pills(
                 "Weitere Aktionen",
-                options=["Handwerker / Wartung", "Bankverbindung mitteilen", "Abmahnung Hausordnung", "Mieterübersicht"],
+                options=["Handwerker / Wartung", "Bankverbindung mitteilen", "Hausordnung / Rundschreiben", "Mieterübersicht"],
                 default="Handwerker / Wartung",
                 key="sub_action_andere",
                 label_visibility="collapsed"
@@ -805,27 +922,34 @@ elif menu == "KI-Assistent & Schriftverkehr":
                             st.session_state.scroll_to_chat = True
                             st.rerun()
 
-            elif sub_action == "Abmahnung Hausordnung":
+            elif sub_action == "Hausordnung / Rundschreiben":
                 c_inp, c_btn = st.columns([4.5, 1.5])
                 with c_inp:
-                    incident_txt = st.text_input("Pflichtverletzung", placeholder="z. B. wiederholte Ruhestörung nach 22:00 Uhr", key="act_ah_incident")
+                    incident_label = "Thema / Hinweis" if is_all else "Pflichtverletzung"
+                    incident_placeholder = "z. B. Ruhezeiten ab 22:00 Uhr und Treppenhaus freihalten" if is_all else "z. B. wiederholte Ruhestörung nach 22:00 Uhr"
+                    incident_txt = st.text_input(incident_label, placeholder=incident_placeholder, key="act_ah_incident")
                 with c_btn:
                     st.write("")
                     st.write("")
-                    if st.button("Abmahnung erstellen", type="primary", use_container_width=True, key="btn_ah"):
+                    action_label = "Rundschreiben erstellen" if is_all else "Abmahnung erstellen"
+                    if st.button(action_label, type="primary", use_container_width=True, key="btn_ah"):
                         if tgt_t:
-                            detail = f" wegen vertragswidrigen Verhaltens: {incident_txt.strip()}" if incident_txt.strip() else " wegen wiederholter Verletzung der Hausordnung"
-                            st.session_state.quick_prompt = f"Schreibe eine formelle Abmahnung an {tgt_t}{detail}"
+                            if is_all:
+                                detail = f" bezüglich der Einhaltung der Hausordnung: {incident_txt.strip()}" if incident_txt.strip() else " bezüglich der Einhaltung der Hausordnung und des Hausfriedens"
+                                st.session_state.quick_prompt = f"Schreibe ein Rundschreiben an {tgt_t}{detail}"
+                            else:
+                                detail = f" wegen vertragswidrigen Verhaltens: {incident_txt.strip()}" if incident_txt.strip() else " wegen wiederholter Verletzung der Hausordnung"
+                                st.session_state.quick_prompt = f"Schreibe eine formelle Abmahnung an {tgt_t}{detail}"
                             st.session_state.scroll_to_chat = True
                             st.rerun()
 
             elif sub_action == "Mieterübersicht":
                 c_txt, c_btn = st.columns([4.5, 1.5])
                 with c_txt:
-                    st.write("Ruft die vollständige Übersicht aller aktuell aktiven Mieter ab.")
+                    st.write(f"Ruft die vollständige Übersicht aller aktuell aktiven Mieter der Liegenschaft **{sel_prop_name}** ab.")
                 with c_btn:
                     if st.button("Mieterliste anzeigen", type="primary", use_container_width=True, key="btn_ml"):
-                        st.session_state.quick_prompt = "Welche Mieter wohnen aktuell im Objekt?"
+                        st.session_state.quick_prompt = f"Welche Mieter wohnen aktuell in der Liegenschaft {sel_prop_name}?"
                         st.session_state.scroll_to_chat = True
                         st.rerun()
 

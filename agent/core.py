@@ -77,26 +77,39 @@ def draft_letter_with_ai(
     effective_nk_str = f"01.{m_end:02d}.{y_end}"
 
     salutation = (tenant_info.get("salutation") if tenant_info else "") or ""
-    if not salutation:
-        salutation = "Frau" if any(fn in recipient_name.lower() for fn in ["laura", "sabine", "anna", "maria", "sarah", "julia", "lisa"]) else "Herr"
+    is_all_tenants = (tenant_info and tenant_info.get("is_all_tenants")) or any(
+        term in recipient_name.lower() or term in user_prompt.lower()
+        for term in ["alle mieter", "alle mieterinnen", "hausgemeinschaft", "sämtliche mieter", "alle bewohner"]
+    )
 
-    last_name = (tenant_info.get("last_name") if tenant_info else recipient_name.split()[-1]).strip()
-    formal_greeting = f"Sehr geehrte Frau {last_name}" if salutation == "Frau" else f"Sehr geehrter Herr {last_name}"
-
-    context_lines = [
-        f"Empfänger: {recipient_name}",
-        f"Anrede: {salutation}",
-        f"Verbindliche Briefanredezeile: {formal_greeting},"
-    ]
-    if tenant_info:
-        context_lines.append(f"Mietobjekt: {tenant_info.get('property_name', 'Wohnanlage')}")
-        context_lines.append(f"Wohneinheit: {tenant_info.get('unit_number', '')}")
-        context_lines.append(f"Reguläre monatliche Nettokaltmiete: {tenant_info.get('cold_rent', 0.0):.2f} €")
-        context_lines.append(f"Reguläre monatliche Nebenkostenvorauszahlung: {tenant_info.get('utility_advance', 0.0):.2f} €")
-        if tenant_info.get('price_per_sqm'):
-            context_lines.append(f"Quadratmeterpreis: {tenant_info.get('price_per_sqm'):.2f} €/m²")
-        if tenant_info.get('lease_start'):
-            context_lines.append(f"Mietbeginn: {tenant_info.get('lease_start')}")
+    if is_all_tenants:
+        salutation = "alle"
+        formal_greeting = "Sehr geehrte Mieterinnen und Mieter"
+        prop_str = (tenant_info.get("property_name") if tenant_info else "") or "Ihrer Wohnanlage"
+        context_lines = [
+            f"Empfänger: Alle Mieterinnen und Mieter der Liegenschaft ({prop_str})",
+            f"Verbindliche Briefanredezeile: {formal_greeting},",
+            f"Mietobjekt / Liegenschaft: {prop_str}"
+        ]
+    else:
+        if not salutation:
+            salutation = "Frau" if any(fn in recipient_name.lower() for fn in ["laura", "sabine", "anna", "maria", "sarah", "julia", "lisa"]) else "Herr"
+        last_name = (tenant_info.get("last_name") if tenant_info else recipient_name.split()[-1]).strip()
+        formal_greeting = f"Sehr geehrte Frau {last_name}" if salutation == "Frau" else f"Sehr geehrter Herr {last_name}"
+        context_lines = [
+            f"Empfänger: {recipient_name}",
+            f"Anrede: {salutation}",
+            f"Verbindliche Briefanredezeile: {formal_greeting},"
+        ]
+        if tenant_info:
+            context_lines.append(f"Mietobjekt: {tenant_info.get('property_name', 'Wohnanlage')}")
+            context_lines.append(f"Wohneinheit: {tenant_info.get('unit_number', '')}")
+            context_lines.append(f"Reguläre monatliche Nettokaltmiete: {tenant_info.get('cold_rent', 0.0):.2f} €")
+            context_lines.append(f"Reguläre monatliche Nebenkostenvorauszahlung: {tenant_info.get('utility_advance', 0.0):.2f} €")
+            if tenant_info.get('price_per_sqm'):
+                context_lines.append(f"Quadratmeterpreis: {tenant_info.get('price_per_sqm'):.2f} €/m²")
+            if tenant_info.get('lease_start'):
+                context_lines.append(f"Mietbeginn: {tenant_info.get('lease_start')}")
     
     tenant_context = "\n".join(context_lines)
 
@@ -229,12 +242,25 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
     landlord_bank = settings.get("landlord_bank_name", "Berliner Sparkasse")
     default_days = int(settings.get("default_payment_deadline_days", "14"))
     
-    salutation = (tenant_info.get("salutation") if tenant_info else "") or ""
-    if not salutation:
-        salutation = "Frau" if any(fn in recipient_name.lower() for fn in ["laura", "sabine", "anna", "maria", "sarah", "julia", "lisa"]) else "Herr"
+    is_all_tenants = (tenant_info and tenant_info.get("is_all_tenants")) or any(
+        term in recipient_name.lower() or term in user_prompt.lower()
+        for term in ["alle mieter", "alle mieterinnen", "hausgemeinschaft", "sämtliche mieter", "alle bewohner"]
+    )
 
-    last_name = (tenant_info.get("last_name") if tenant_info else recipient_name.split()[-1]).strip()
-    sal_greeting = f"Sehr geehrte Frau {last_name}" if salutation == "Frau" else f"Sehr geehrter Herr {last_name}"
+    if is_all_tenants:
+        sal_greeting = "Sehr geehrte Mieterinnen und Mieter"
+        prop_str = (tenant_info.get('property_name') if tenant_info else "") or "Ihrer Wohnanlage"
+        unit_str = f"in der Liegenschaft {prop_str}"
+        unit_label = f"Liegenschaft {prop_str}"
+    else:
+        salutation = (tenant_info.get("salutation") if tenant_info else "") or ""
+        if not salutation:
+            salutation = "Frau" if any(fn in recipient_name.lower() for fn in ["laura", "sabine", "anna", "maria", "sarah", "julia", "lisa"]) else "Herr"
+
+        last_name = (tenant_info.get("last_name") if tenant_info else recipient_name.split()[-1]).strip()
+        sal_greeting = f"Sehr geehrte Frau {last_name}" if salutation == "Frau" else f"Sehr geehrter Herr {last_name}"
+        unit_str = tenant_info.get("unit_number", "Ihrer gemieteten Wohneinheit") if tenant_info else "Ihrer gemieteten Wohneinheit"
+        unit_label = unit_str if unit_str.lower().startswith("wohnung") else f"Wohnung {unit_str}"
 
     # 1. Prozentangabe prüfen (z. B. "15%", "15 Prozent", "15 %")
     pct_match = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:%|prozent)", prompt_lower)
@@ -248,8 +274,6 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
     def fmt_eur(val: float) -> str:
         return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") + " €"
 
-    unit_str = tenant_info.get("unit_number", "Ihrer gemieteten Wohneinheit") if tenant_info else "Ihrer gemieteten Wohneinheit"
-    unit_label = unit_str if unit_str.lower().startswith("wohnung") else f"Wohnung {unit_str}"
     cur_cold = float(tenant_info.get("cold_rent", 900.0)) if tenant_info else 900.0
     cur_nk = float(tenant_info.get("utility_advance", 220.0)) if tenant_info else 220.0
 
@@ -488,13 +512,14 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
         subject = "Wichtige Mitteilung: Aktualisierung der Bankverbindung für Mietzahlungen"
         body = (
             f"{sal_greeting},\n\n"
-            f"wir möchten Sie darüber informieren, dass sich unsere Bankverbindung für die Überweisung der monatlichen Miete ({unit_str}) ändert.\n\n"
+            f"wir möchten Sie darüber informieren, dass sich unsere Bankverbindung für die Überweisung der monatlichen Miet- und Nebenkostenzahlungen {unit_str} ändert.\n\n"
             f"Bitte richten Sie Ihre Zahlungen ab dem kommenden Monatsersten an folgendes Konto:\n"
             f"• Kontoinhaber: {landlord_holder}\n"
             f"• IBAN: {landlord_iban}\n"
             f"• BIC: {landlord_bic}\n"
             f"• Kreditinstitut: {landlord_bank}\n"
-            f"• Verwendungszweck: Miete {unit_str} - {recipient_name}\n\n"
+            f"• Verwendungszweck: Miete {unit_str}\n\n"
+            f"Sollten Sie einen Dauerauftrag eingerichtet haben, passen Sie diesen bitte rechtzeitig an. Falls Sie uns ein SEPA-Lastschriftmandat erteilt haben, buchen wir den Betrag ab diesem Zeitpunkt automatisch vom neuen Konto ab.\n\n"
             f"Vielen Dank für Ihre Unterstützung."
         )
         return {"subject": subject, "body": body}
@@ -502,11 +527,14 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
     # 6. Handwerker / Wartung
     if any(w in prompt_lower for w in ["handwerker", "wartung", "reparatur", "begehung", "ablesung"]):
         subject = "Ankündigung von Handwerker- und Instandhaltungsarbeiten"
+        scope_str = unit_str if is_all_tenants else f"in Ihrer Wohnanlage ({unit_str})"
         body = (
             f"{sal_greeting},\n\n"
-            f"wir kündigen Ihnen hiermit anstehende Arbeiten in Ihrer Wohnanlage ({unit_str}) an.\n\n"
-            f"Grund: {user_prompt}\n\n"
-            f"Bitte gewähren Sie den beauftragten Handwerkern zum vereinbarten Termin Zutritt. Sollten Sie den Termin nicht wahrnehmen können, bitten wir um rechtzeitige Benachrichtigung."
+            f"wir kündigen Ihnen hiermit anstehende Arbeiten {scope_str} an.\n\n"
+            f"Grund / Details: {user_prompt}\n\n"
+            f"Bitte gewähren Sie den beauftragten Handwerkern zum vereinbarten Termin ungehinderten Zutritt zu den entsprechenden Bereichen. "
+            f"Sollten Sie Fragen oder Terminkollisionen haben, bitten wir um rechtzeitige Benachrichtigung unserer Hausverwaltung.\n\n"
+            f"Vielen Dank für Ihre Unterstützung und Ihr Verständnis."
         )
         return {"subject": subject, "body": body}
 
@@ -514,7 +542,7 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
     subject = "Mitteilung Ihrer Hausverwaltung"
     body = (
         f"{sal_greeting},\n\n"
-        f"wir wenden uns heute bezüglich Ihres Mietverhältnisses ({unit_str}) an Sie.\n\n"
+        f"wir wenden uns heute mit einer Mitteilung {unit_str} an Sie.\n\n"
         f"{user_prompt}\n\n"
         f"Bei Rückfragen stehen wir Ihnen jederzeit gerne zur Verfügung."
     )
@@ -555,14 +583,17 @@ def parse_user_intent_ollama(user_prompt: str, model: str = "llama3") -> Dict[st
     ]) or (
         any(w in prompt_lower for w in ["nebenkosten", "kaltmiete", "betriebskosten", "miete"]) and any(w in prompt_lower for w in ["senk", "erhöh", "anpass", "reduzier"])
     ):
-        name_match = re.search(r"(?:an|für|von)\s+([A-Za-zÄÖÜäöüß]+(?:\s+[A-Za-zÄÖÜäöüß]+)?)", user_prompt, re.IGNORECASE)
-        tenant_name = name_match.group(1).strip() if name_match else ""
-        
-        if not tenant_name:
-            for t in get_all_tenants():
-                if t["last_name"].lower() in prompt_lower or t["first_name"].lower() in prompt_lower:
-                    tenant_name = f"{t['first_name']} {t['last_name']}"
-                    break
+        if any(term in prompt_lower for term in ["alle mieter", "alle mieterinnen", "hausgemeinschaft", "sämtliche mieter", "alle bewohner"]):
+            tenant_name = "alle Mieterinnen und Mieter"
+        else:
+            name_match = re.search(r"(?:an|für|von)\s+([A-Za-zÄÖÜäöüß]+(?:\s+[A-Za-zÄÖÜäöüß]+)?)", user_prompt, re.IGNORECASE)
+            tenant_name = name_match.group(1).strip() if name_match else ""
+            
+            if not tenant_name:
+                for t in get_all_tenants():
+                    if t["last_name"].lower() in prompt_lower or t["first_name"].lower() in prompt_lower:
+                        tenant_name = f"{t['first_name']} {t['last_name']}"
+                        break
 
         return {
             "action": "write_letter",
@@ -604,6 +635,8 @@ def parse_user_intent_ollama(user_prompt: str, model: str = "llama3") -> Dict[st
 
     # 5. Nebenkostenabrechnung
     if "abrechnung" in prompt_lower or "nebenkosten" in prompt_lower or "pdf" in prompt_lower:
+        if any(term in prompt_lower for term in ["alle mieter", "alle mieterinnen", "alle abrechnungen", "sämtliche mieter", "für alle"]):
+            return {"action": "generate_statement", "tenant_name": "alle", "year": year}
         tenants = get_all_tenants()
         found_name = None
         for t in tenants:
@@ -631,6 +664,28 @@ def handle_agent_request(user_prompt: str, model: str = "llama3") -> Dict[str, A
     if action == "generate_statement":
         tenant_name = intent.get("tenant_name", "")
         year = intent.get("year", 2025)
+
+        # Prüfung: Abrechnung für alle Mieter gewünscht?
+        if any(term in tenant_name.lower() or term in user_prompt.lower() for term in ["alle mieter", "alle mieterinnen", "alle abrechnungen", "sämtliche mieter", "für alle", "alle"]):
+            from agent.tools import get_annual_utility_statements
+            statements = get_annual_utility_statements(year)
+            if not statements:
+                return {
+                    "success": False,
+                    "message": f"Für das Abrechnungsjahr {year} konnten keine Abrechnungen generiert werden. Bitte prüfe die erfassten Betriebskosten und Mieter.",
+                    "data": None
+                }
+            lines = [f"📊 **Übersicht der Nebenkostenabrechnungen für das Jahr {year} aller Mieter:**\n"]
+            for s in statements:
+                res_sym = "🟢 Guthaben" if s["is_refund"] else "🔴 Nachzahlung"
+                lines.append(f"- **{s['full_name']}** ({s['unit_number']}, {s['area_sqm']:.0f} m²): Anteil {s['tenant_share']:.2f} € | Vorauszahlung {s['prepayments_paid']:.2f} € ➔ **{res_sym}: {abs(s['balance']):.2f} €**")
+            lines.append(f"\n💡 *Die vollständigen Einzelabrechnungen und druckfertigen Nachweise findest du im Bereich **'Betriebskosten & Finanzen'**.*")
+            return {
+                "success": True,
+                "message": "\n".join(lines),
+                "data": statements
+            }
+
         tenant = find_tenant_by_name(tenant_name)
         
         if not tenant:
@@ -683,22 +738,24 @@ def handle_agent_request(user_prompt: str, model: str = "llama3") -> Dict[str, A
     elif action == "write_letter":
         raw_name = (intent.get("tenant_name") or "").strip()
 
-        if not raw_name:
+        # Prüfen ob Rundschreiben an alle Mieter
+        is_all_tenants = any(term in raw_name.lower() or term in user_prompt.lower() for term in [
+            "alle mieter", "alle mieterinnen", "hausgemeinschaft", "sämtliche mieter", "alle bewohner"
+        ])
+
+        if not raw_name and not is_all_tenants:
             # Letzter Versuch: Aus prompt_lower nach Namen suchen
             for t in get_all_tenants():
                 if t["last_name"].lower() in user_prompt.lower() or t["first_name"].lower() in user_prompt.lower():
                     raw_name = f"{t['first_name']} {t['last_name']}"
                     break
 
-        if not raw_name:
+        if not raw_name and not is_all_tenants:
             return {
                 "success": False,
-                "message": "Für welchen Mieter soll ich das Schreiben verfassen? Bitte nenne mir den Namen des Mieters (z. B. 'für Max Mustermann' oder 'für Kirdar Karadag').",
+                "message": "Für welchen Mieter soll ich das Schreiben verfassen? Bitte nenne mir den Namen des Mieters oder wähle 'Alle Mieter' aus.",
                 "data": None
             }
-
-        # Mieter in Datenbank nachschlagen
-        db_tenant = find_tenant_by_name(raw_name)
 
         settings = get_all_settings()
         sender_name = settings.get("landlord_name", "Hausverwaltung Sonnenhang")
@@ -708,17 +765,46 @@ def handle_agent_request(user_prompt: str, model: str = "llama3") -> Dict[str, A
         sender_email = settings.get("landlord_email", "verwaltung@sonnenhang.de")
         sign_person = settings.get("landlord_contact_person") or settings.get("default_signature_title", sender_name)
 
-        if db_tenant:
-            full_name = f"{db_tenant['first_name']} {db_tenant['last_name']}"
-            unit_info = f"{db_tenant['unit_number']} ({db_tenant['property_name']})"
-            addr_line = f"{db_tenant.get('street', 'Lindenstraße 14')}\n{db_tenant.get('zip_code', '10115')} {db_tenant.get('city', 'Berlin')}"
-            prop_name = db_tenant.get("property_name", sender_name)
-            note = f"👤 *Mieter aus deiner Datenbank zugeordnet: {full_name} ({unit_info})*"
+        if is_all_tenants:
+            from agent.tools import get_all_properties
+            props = get_all_properties()
+            matched_p = None
+            for p in props:
+                if p["name"].lower() in user_prompt.lower() or (p.get("alias") and p["alias"].lower() in user_prompt.lower()):
+                    matched_p = p
+                    break
+            if not matched_p and props:
+                matched_p = props[0]
+
+            prop_title = matched_p["name"] if matched_p else sender_name
+            p_street = matched_p["street"] if matched_p else sender_street
+            p_city = f"{matched_p.get('zip_code', '10115')} {matched_p.get('city', 'Berlin')}".strip() if matched_p else sender_city
+
+            full_name = f"An alle Mieterinnen und Mieter\n{prop_title}"
+            addr_line = f"{p_street}\n{p_city}"
+            prop_name = prop_title
+            db_tenant = {
+                "is_all_tenants": True,
+                "property_name": prop_title,
+                "salutation": "alle",
+                "unit_number": "gesamtes Objekt",
+                "cold_rent": 0.0,
+                "utility_advance": 0.0
+            }
+            note = f"👥 *Rundschreiben an alle Mieterinnen und Mieter ({prop_title}) erstellt*"
         else:
-            full_name = raw_name
-            addr_line = "Musterstraße 1\n10115 Berlin"
-            prop_name = sender_name
-            note = f"💡 *Hinweis: '{raw_name}' ist bisher nicht in deiner Mieter-Datenbank hinterlegt. Das Schreiben wurde mit Vorlagendaten für diesen Namen erstellt.*"
+            db_tenant = find_tenant_by_name(raw_name)
+            if db_tenant:
+                full_name = f"{db_tenant['first_name']} {db_tenant['last_name']}"
+                unit_info = f"{db_tenant['unit_number']} ({db_tenant['property_name']})"
+                addr_line = f"{db_tenant.get('street', 'Lindenstraße 14')}\n{db_tenant.get('zip_code', '10115')} {db_tenant.get('city', 'Berlin')}"
+                prop_name = db_tenant.get("property_name", sender_name)
+                note = f"👤 *Mieter aus deiner Datenbank zugeordnet: {full_name} ({unit_info})*"
+            else:
+                full_name = raw_name
+                addr_line = "Musterstraße 1\n10115 Berlin"
+                prop_name = sender_name
+                note = f"💡 *Hinweis: '{raw_name}' ist bisher nicht in deiner Mieter-Datenbank hinterlegt. Das Schreiben wurde mit Vorlagendaten für diesen Namen erstellt.*"
 
         # Brief mit KI entwerfen
         letter_content = draft_letter_with_ai(
