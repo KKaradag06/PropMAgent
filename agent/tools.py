@@ -579,17 +579,28 @@ def get_available_expense_years() -> List[int]:
     years.sort(reverse=True)
     return years
 
-def get_expenses_for_year(year: int) -> List[Dict[str, Any]]:
-    """Gibt alle detaillierten Betriebskosten inkl. ID für ein bestimmtes Jahr zurück."""
-    sql = """
-        SELECT e.id, e.property_id, e.year, e.category, e.description, e.amount, 
-               e.allocation_key, e.receipt_date, p.name as property_name
-        FROM expenses e
-        JOIN properties p ON e.property_id = p.id
-        WHERE e.year = ?
-        ORDER BY e.category ASC, e.id ASC;
-    """
-    return query_db(sql, (year,))
+def get_expenses_for_year(year: int, property_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Gibt alle detaillierten Betriebskosten inkl. ID für ein bestimmtes Jahr (optional gefiltert nach Liegenschaft) zurück."""
+    if property_id:
+        sql = """
+            SELECT e.id, e.property_id, e.year, e.category, e.description, e.amount, 
+                   e.allocation_key, e.receipt_date, p.name as property_name
+            FROM expenses e
+            JOIN properties p ON e.property_id = p.id
+            WHERE e.year = ? AND e.property_id = ?
+            ORDER BY e.category ASC, e.id ASC;
+        """
+        return query_db(sql, (year, property_id))
+    else:
+        sql = """
+            SELECT e.id, e.property_id, e.year, e.category, e.description, e.amount, 
+                   e.allocation_key, e.receipt_date, p.name as property_name
+            FROM expenses e
+            JOIN properties p ON e.property_id = p.id
+            WHERE e.year = ?
+            ORDER BY e.category ASC, e.id ASC;
+        """
+        return query_db(sql, (year,))
 
 def add_expense(
     property_id: int,
@@ -662,19 +673,27 @@ def copy_expenses_from_year(source_year: int, target_year: int, property_id: Opt
         count += 1
     return count
 
-def get_annual_utility_statements(year: int) -> List[Dict[str, Any]]:
-    """Erstellt eine tabellarische Übersicht aller Mieterabrechnungen für ein bestimmtes Jahr."""
-    tenants = get_all_tenants()
+def get_annual_utility_statements(year: int, property_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Erstellt eine tabellarische Übersicht aller Mieterabrechnungen für ein bestimmtes Jahr (optional gefiltert nach Liegenschaft)."""
+    if property_id:
+        tenants = get_tenants_by_property(property_id)
+    else:
+        tenants = get_all_tenants()
     statements = []
     for t in tenants:
         try:
             bill = calculate_utility_bill(t["tenant_id"], year)
+            display_name = t.get("display_name") or f"{t.get('salutation', 'Herr')} {t['first_name']} {t['last_name']}"
             statements.append({
                 "tenant_id": t["tenant_id"],
+                "property_id": t.get("property_id") or (bill.get("property", {}) or {}).get("id"),
+                "property_name": t.get("property_name") or (bill.get("property", {}) or {}).get("name") or "",
+                "property_alias": t.get("property_alias") or (bill.get("property", {}) or {}).get("alias") or "",
                 "salutation": t.get("salutation", "Herr"),
                 "first_name": t["first_name"],
                 "last_name": t["last_name"],
-                "full_name": f"{t.get('salutation', 'Herr')} {t['first_name']} {t['last_name']}",
+                "display_name": display_name,
+                "full_name": display_name,
                 "unit_number": t.get("unit_number", ""),
                 "area_sqm": float(t.get("area_sqm") or 0.0),
                 "total_property_expenses": bill["total_property_expenses"],

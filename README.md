@@ -41,9 +41,10 @@
   - Zeitgleicher Download als druckfertiges **PDF** und editierbares **Word DOCX** (voll kompatibel mit Microsoft Word, LibreOffice Writer und OpenOffice).
   - Visuelle Download-Bestätigung (grünes Häkchen).
 - 📊 **Betriebskosten & Finanzen:**
+  - **Objektspezifische Liegenschaftsauswahl:** Filterung der gesamten Abrechnungs- und Kostenübersicht nach einzelnen Liegenschaften oder Gesamtübersicht über alle Objekte.
   - Verwaltung mehrjähriger Betriebskostenabrechnungen (Vorjahre, aktuelles Jahr).
   - Erfassung und Bearbeitung von Kostenarten mit flexiblen Umlageschlüsseln (nach Wohnfläche m², Personen oder Direkterfassung).
-  - Kopierfunktion für Vorjahresdaten als Basis für neue Abrechnungsjahre.
+  - Kopierfunktion für Vorjahresdaten als Basis für neue Abrechnungsjahre (auch liegenschaftsbezogen).
   - Tabellarische Jahresabrechnungen und 1-Klick-Generierung von Einzelabrechnungs-PDFs für alle Mieter.
 
 ---

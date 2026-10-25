@@ -2399,7 +2399,35 @@ elif menu == "Betriebskosten & Finanzen":
             lbl = f"{y}"
         year_labels[lbl] = y
 
-    col_yr_sel, col_yr_add = st.columns([3, 1])
+    # Liegenschaften für Filter vorbereiten
+    all_properties = get_all_properties()
+    prop_filter_options = {"🏢 Alle Liegenschaften (Gesamtübersicht)": None}
+    for p in all_properties:
+        p_name = p["name"]
+        if p.get("alias"):
+            p_name += f" ({p['alias']})"
+        prop_filter_options[f"🏢 {p_name}"] = p["property_id"]
+
+    col_prop_sel, col_yr_sel, col_yr_add = st.columns([1.7, 1.4, 0.9])
+    with col_prop_sel:
+        saved_prop_id = st.session_state.get("active_finance_property_id", None)
+        prop_labels = list(prop_filter_options.keys())
+        default_prop_idx = 0
+        for idx, (lbl, pid) in enumerate(prop_filter_options.items()):
+            if pid == saved_prop_id:
+                default_prop_idx = idx
+                break
+
+        selected_prop_label = st.selectbox(
+            "Liegenschaft auswählen",
+            options=prop_labels,
+            index=default_prop_idx,
+            key="finance_property_selector",
+            help="Wähle eine bestimmte Liegenschaft aus, um nur deren Mieter und Kosten zu sehen, oder wähle die Gesamtübersicht aller Liegenschaften."
+        )
+        selected_property_id = prop_filter_options[selected_prop_label]
+        st.session_state["active_finance_property_id"] = selected_property_id
+
     with col_yr_sel:
         default_lbl = list(year_labels.keys())[0]
         stored_yr = st.session_state.get("active_finance_year", current_year)
@@ -2407,19 +2435,21 @@ elif menu == "Betriebskosten & Finanzen":
             if v == stored_yr:
                 default_lbl = k
                 break
+        yr_idx = list(year_labels.keys()).index(default_lbl) if default_lbl in year_labels else 0
 
-        selected_lbl = st.segmented_control(
-            "Abrechnungsjahr auswählen",
+        selected_lbl = st.selectbox(
+            "Abrechnungsjahr",
             options=list(year_labels.keys()),
-            default=default_lbl,
-            key="segmented_finance_year"
+            index=yr_idx,
+            key="finance_year_selector"
         )
         selected_year = year_labels.get(selected_lbl, current_year)
         st.session_state["active_finance_year"] = selected_year
 
     with col_yr_add:
         st.write("")
-        with st.popover("Weiteres Jahr anlegen...", use_container_width=True):
+        st.write("")
+        with st.popover("Neues Jahr...", use_container_width=True):
             st.markdown("**Neues Abrechnungsjahr anlegen**")
             new_custom_year = st.number_input(
                 "Abrechnungsjahr",
@@ -2438,16 +2468,16 @@ elif menu == "Betriebskosten & Finanzen":
             if st.button("Abrechnungsjahr anlegen", type="primary", use_container_width=True, key="btn_init_new_year"):
                 target_yr = int(new_custom_year)
                 if copy_source:
-                    c = copy_expenses_from_year(copy_source, target_yr)
-                    st.success(f"{c} Positionen aus {copy_source} für {target_yr} übernommen.")
+                    c = copy_expenses_from_year(copy_source, target_yr, property_id=selected_property_id)
+                    set_flash_message(f"{c} Positionen aus {copy_source} für {target_yr} übernommen.")
                 else:
-                    st.info(f"Jahr {target_yr} ist nun aktiv. Du kannst nun Positionen anlegen.")
+                    set_flash_message(f"Abrechnungsjahr {target_yr} ist nun aktiv.")
                 st.session_state["active_finance_year"] = target_yr
                 st.rerun()
 
-    # Daten für das gewählte Jahr laden
-    expenses = get_expenses_for_year(selected_year)
-    statements = get_annual_utility_statements(selected_year)
+    # Daten für das gewählte Jahr und die gewählte Liegenschaft laden
+    expenses = get_expenses_for_year(selected_year, selected_property_id)
+    statements = get_annual_utility_statements(selected_year, selected_property_id)
 
     total_expenses = sum(float(e["amount"]) for e in expenses)
     total_advances = sum(float(s["prepayments_paid"]) for s in statements)
@@ -2458,19 +2488,20 @@ elif menu == "Betriebskosten & Finanzen":
     st.markdown("---")
     m1, m2, m3, m4 = st.columns(4)
     with m1:
+        cost_metric_label = f"Kosten Liegenschaft ({selected_year})" if selected_property_id else f"Gesamtkosten ({selected_year})"
         st.metric(
-            label=f"Gesamtkosten ({selected_year})",
+            label=cost_metric_label,
             value=f"{total_expenses:,.2f} €",
-            help="Summe aller umlagefähigen Betriebskosten der Liegenschaft für dieses Jahr."
+            help="Summe aller umlagefähigen Betriebskosten für die getroffene Liegenschaftsauswahl in diesem Jahr."
         )
     with m2:
         st.metric(
             label="Geleistete Vorauszahlungen",
             value=f"{total_advances:,.2f} €",
-            help="Summe aller durch Mieter geleisteten bzw. vertraglich vereinbarten Jahresvorauszahlungen."
+            help="Summe aller durch die Mieter dieser Liegenschaft geleisteten bzw. vertraglich vereinbarten Jahresvorauszahlungen."
         )
     with m3:
-        bal_label = "Gesamtsaldo Mieter"
+        bal_label = "Saldo Liegenschaft" if selected_property_id else "Gesamtsaldo Mieter"
         if total_balance > 0:
             bal_val = f"+{total_balance:,.2f} €"
             bal_delta = "Nachzahlung fällig"
@@ -2485,7 +2516,7 @@ elif menu == "Betriebskosten & Finanzen":
         st.metric(
             label="Kostenpositionen / Mieter",
             value=f"{len(expenses)} Pos. / {len(statements)} Mieter",
-            help="Anzahl der verbuchten Belege und beteiligten Mietparteien."
+            help="Anzahl der verbuchten Belege und beteiligten Mietparteien in der getroffenen Auswahl."
         )
     st.markdown("---")
 
@@ -2498,18 +2529,20 @@ elif menu == "Betriebskosten & Finanzen":
 
     # 1. TAB: Abrechnungsübersicht der Mieter
     with tab_overview:
-        st.subheader(f"Mieter-Abrechnungen für das Jahr {selected_year}")
+        header_text = f"Mieter-Abrechnungen für {selected_prop_label.replace('🏢 ', '')} ({selected_year})" if selected_property_id else f"Mieter-Abrechnungen aller Liegenschaften ({selected_year})"
+        st.subheader(header_text)
         st.caption("Aufstellung aller Mieter mit Wohnfläche, Kostenanteil, Vorauszahlungen, Saldo und direktem PDF-Export.")
 
         if not expenses:
-            st.info(f"Für das Abrechnungsjahr {selected_year} wurden noch keine Betriebskosten erfasst. Daher beträgt der berechnete Kostenanteil für alle Mieter 0,00 €.")
+            scope_desc = f"für '{selected_prop_label.replace('🏢 ', '')}'" if selected_property_id else "in diesem Abrechnungsjahr"
+            st.info(f"Für das Abrechnungsjahr {selected_year} wurden {scope_desc} noch keine Betriebskosten erfasst. Daher beträgt der berechnete Kostenanteil für die Mieter 0,00 €.")
             if available_years:
                 other_years = [y for y in available_years if y != selected_year]
                 if other_years:
                     pref_copy_yr = 2025 if 2025 in other_years else other_years[0]
                     if st.button(f"Kostenpositionen aus {pref_copy_yr} als Vorlage übernehmen", type="primary", key="btn_copy_quick"):
-                        count = copy_expenses_from_year(pref_copy_yr, selected_year)
-                        st.success(f"{count} Positionen aus {pref_copy_yr} erfolgreich übernommen.")
+                        count = copy_expenses_from_year(pref_copy_yr, selected_year, property_id=selected_property_id)
+                        set_flash_message(f"{count} Positionen aus {pref_copy_yr} erfolgreich übernommen.")
                         st.rerun()
 
         if statements:
@@ -2523,15 +2556,20 @@ elif menu == "Betriebskosten & Finanzen":
                 else:
                     bal_formatted = "0,00 € (Ausgeglichen)"
 
-                df_statements.append({
+                row_dict = {
                     "Mieter": s["full_name"],
-                    "Wohneinheit": s["unit_number"],
+                    "Wohneinheit": s["unit_number"]
+                }
+                if not selected_property_id:
+                    row_dict["Liegenschaft"] = s.get("property_name") or "-"
+                row_dict.update({
                     "Fläche": f"{s['area_sqm']:.1f} m²",
                     "Kostenanteil": f"{s['tenant_share']:,.2f} €",
                     "Vorauszahlungen": f"{s['prepayments_paid']:,.2f} €",
                     "Abrechnungssaldo": bal_formatted,
                     "Ergebnis": s["status_label"]
                 })
+                df_statements.append(row_dict)
 
             st.dataframe(pd.DataFrame(df_statements), use_container_width=True, hide_index=True)
 
@@ -2539,17 +2577,25 @@ elif menu == "Betriebskosten & Finanzen":
             st.markdown("")
             with st.container(border=True):
                 st.markdown("**Einzelausdruck & Abrechnungsbrief (DIN 5008)**")
-                st.caption("Wähle einen Mieter aus, um die vollständige, rechtssichere Nebenkostenabrechnung als druckfertiges PDF zu erstellen.")
+                scope_info = f"der Liegenschaft '{selected_prop_label.replace('🏢 ', '')}'" if selected_property_id else ""
+                st.caption(f"Wähle einen Mieter {scope_info} aus, um die vollständige, rechtssichere Nebenkostenabrechnung als druckfertiges PDF zu erstellen.")
 
                 col_t_sel, col_t_btn = st.columns([3, 1.5])
                 with col_t_sel:
-                    tenant_map = {f"{s['full_name']} ({s['unit_number']})": s["tenant_id"] for s in statements}
-                    selected_tenant_label = st.selectbox("Mieter auswählen", list(tenant_map.keys()), key=f"sel_t_bill_{selected_year}")
+                    tenant_map = {
+                        f"{s['full_name']} ({s['unit_number']}{' · ' + s['property_name'] if not selected_property_id else ''})": s["tenant_id"] 
+                        for s in statements
+                    }
+                    selected_tenant_label = st.selectbox(
+                        "Mieter auswählen", 
+                        list(tenant_map.keys()), 
+                        key=f"sel_t_bill_{selected_year}_{selected_property_id}"
+                    )
                     selected_tenant_id = tenant_map.get(selected_tenant_label)
                 with col_t_btn:
                     st.write("")
                     st.write("")
-                    btn_gen_statement = st.button("Abrechnung generieren", type="primary", use_container_width=True, key=f"btn_gen_stmt_{selected_year}")
+                    btn_gen_statement = st.button("Abrechnung generieren", type="primary", use_container_width=True, key=f"btn_gen_stmt_{selected_year}_{selected_property_id}")
 
                 gen_state_key = f"generated_bill_{selected_year}_{selected_tenant_id}"
                 if btn_gen_statement and selected_tenant_id:
@@ -2571,11 +2617,15 @@ elif menu == "Betriebskosten & Finanzen":
                         key=f"dl_stmt_btn_{selected_year}_{selected_tenant_id}"
                     )
         else:
-            st.info("Aktuell sind noch keine Mieter in der Liegenschaft erfasst.")
+            if selected_property_id:
+                st.info(f"In der Liegenschaft '{selected_prop_label.replace('🏢 ', '')}' sind aktuell keine Mieter erfasst.")
+            else:
+                st.info("Aktuell sind noch keine Mieter im System erfasst.")
 
     # 2. TAB: Kostenaufstellung & Bearbeitung
     with tab_cost_edit:
-        st.subheader(f"Kostenaufstellung für das Abrechnungsjahr {selected_year}")
+        cost_edit_header = f"Kostenaufstellung für {selected_prop_label.replace('🏢 ', '')} ({selected_year})" if selected_property_id else f"Kostenaufstellung aller Liegenschaften ({selected_year})"
+        st.subheader(cost_edit_header)
         st.caption("Hier kannst du alle gebuchten Betriebskosten einsehen, Beträge und Umlageschlüssel anpassen oder Positionen entfernen.")
 
         if expenses:
@@ -2659,13 +2709,14 @@ elif menu == "Betriebskosten & Finanzen":
                     set_flash_message(f"Kostenposition #{cur_exp['id']} ({cur_exp['category']}) wurde gelöscht.", icon="🗑️")
                     st.rerun()
         else:
-            st.info(f"Für das Abrechnungsjahr {selected_year} sind noch keine Kostenpositionen erfasst.")
+            scope_no_exp = f"für die Liegenschaft '{selected_prop_label.replace('🏢 ', '')}'" if selected_property_id else "in diesem Abrechnungsjahr"
+            st.info(f"Für das Abrechnungsjahr {selected_year} sind {scope_no_exp} noch keine Kostenpositionen erfasst.")
             if available_years:
                 other_years = [y for y in available_years if y != selected_year]
                 if other_years:
                     pref_copy_yr = 2025 if 2025 in other_years else other_years[0]
                     if st.button(f"Kostenpositionen aus {pref_copy_yr} als Vorlage kopieren", type="primary", key="btn_copy_template_edit"):
-                        count = copy_expenses_from_year(pref_copy_yr, selected_year)
+                        count = copy_expenses_from_year(pref_copy_yr, selected_year, property_id=selected_property_id)
                         set_flash_message(f"{count} Positionen aus {pref_copy_yr} für {selected_year} übernommen.")
                         st.rerun()
 
@@ -2680,7 +2731,13 @@ elif menu == "Betriebskosten & Finanzen":
         with st.form("form_add_new_expense", clear_on_submit=True):
             col_aprop, col_ayr = st.columns([2, 1])
             with col_aprop:
-                add_prop_label = st.selectbox("Liegenschaft", list(prop_options.keys()))
+                def_prop_idx = 0
+                if selected_property_id:
+                    for idx, (p_name, p_id) in enumerate(prop_options.items()):
+                        if p_id == selected_property_id:
+                            def_prop_idx = idx
+                            break
+                add_prop_label = st.selectbox("Liegenschaft", list(prop_options.keys()), index=def_prop_idx)
                 add_prop_id = prop_options[add_prop_label]
             with col_ayr:
                 add_yr = st.number_input("Abrechnungsjahr", min_value=2020, max_value=2035, value=selected_year, step=1)
