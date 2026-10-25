@@ -566,6 +566,40 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
             )
         return {"subject": subject, "body": body}
 
+    # 0e. Rundschreiben / Hausordnung / Information an alle Mieter
+    if any(w in prompt_lower for w in ["rundschreiben", "hausordnung", "aushang", "ruhezeit", "treppenhaus", "hausfrieden"]) or (is_all_tenants and not any(w in prompt_lower for w in ["betriebskosten", "nebenkosten", "abrechnung"])):
+        clean_topic = re.sub(
+            r"^(?:schreibe|erstelle|verfasse|sende)\s+(?:ein(?:en)?\s+)?(?:rundschreiben|brief|anschreiben|mitteilung|nachricht|information|schreiben)\s+(?:an\s+[^\s,]+(?:\s+[^\s,]+)?\s+)?(?:bezüglich|wegen|über|ueber|zu|hinsichtlich)\s*:?\s*",
+            "",
+            user_prompt,
+            flags=re.I
+        ).strip()
+        topic_str = clean_topic if clean_topic else "die Einhaltung der Hausordnung und das Zusammenleben im Haus"
+        topic_title = topic_str[0].upper() + topic_str[1:] if topic_str else "Wichtige Information zur Hausordnung"
+
+        subject = f"Gemeinschaftliche Information: {topic_title}"
+        if is_private:
+            body = (
+                f"{sal_greeting},\n\n"
+                f"aus aktuellem Anlass wende ich mich heute mit einem Rundschreiben bezüglich der Liegenschaft ({prop_str}) an Sie.\n\n"
+                f"Thema: {topic_title}\n\n"
+                f"Ein harmonisches und rücksichtsvolles Miteinander setzt voraus, dass die bestehenden Vereinbarungen und Regeln der Hausordnung von allen Bewohnern sorgfältig beachtet werden. "
+                f"Ich bitte daher alle Mieterinnen und Mieter höflich um gegenseitige Rücksichtnahme und die Einhaltung der gemeinschaftlichen Regelungen.\n\n"
+                f"Vielen Dank für Ihre geschätzte Mitarbeit und Ihr Verständnis für ein geordnetes Zusammenleben im Haus.\n\n"
+                f"Bei Fragen oder Hinweisen stehe ich Ihnen jederzeit gerne zur Verfügung."
+            )
+        else:
+            body = (
+                f"{sal_greeting},\n\n"
+                f"aus aktuellem Anlass wenden wir uns heute mit einem Rundschreiben bezüglich der Liegenschaft ({prop_str}) an Sie.\n\n"
+                f"Thema: {topic_title}\n\n"
+                f"Ein harmonisches und rücksichtsvolles Miteinander setzt voraus, dass die bestehenden Vereinbarungen und Regeln der Hausordnung von allen Bewohnern sorgfältig beachtet werden. "
+                f"Wir bitten daher alle Mieterinnen und Mieter höflich um gegenseitige Rücksichtnahme und die Einhaltung der gemeinschaftlichen Regelungen.\n\n"
+                f"Vielen Dank für Ihre geschätzte Mitarbeit und Ihr Verständnis für ein geordnetes Zusammenleben im Haus.\n\n"
+                f"Bei Fragen oder Hinweisen stehen wir Ihnen jederzeit gerne zur Verfügung."
+            )
+        return {"subject": subject, "body": body}
+
     # Eindeutige Erkennung der Briefkategorie
     is_mieterhoehung = (
         any(w in prompt_lower for w in ["mieterhöhung", "mieterhoehung"])
@@ -819,23 +853,29 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
 
     # Standard
     subject = f"Mitteilung Ihres Vermieters ({landlord_name})" if is_private else "Mitteilung Ihrer Hausverwaltung"
-    clean_prompt_body = re.sub(r"^(?:schreibe|erstelle|verfasse|sende)\s+(?:ein(?:en)?\s+)?(?:brief|anschreiben|mitteilung|nachricht|schreiben)\s+(?:an\s+[^\s,]+(?:\s+[^\s,]+)?\s+)?(?:bezüglich|wegen|über|ueber|zu|dass)\s*:?\s*", "", user_prompt, flags=re.I).strip()
+    clean_prompt_body = re.sub(
+        r"^(?:schreibe|erstelle|verfasse|sende)\s+(?:ein(?:en)?\s+)?(?:rundschreiben|brief|anschreiben|mitteilung|nachricht|schreiben|information|aushang)\s+(?:an\s+[^\s,]+(?:\s+[^\s,]+)?\s+)?(?:bezüglich|wegen|über|ueber|zu|dass|hinsichtlich)\s*:?\s*",
+        "",
+        user_prompt,
+        flags=re.I
+    ).strip()
     if clean_prompt_body:
         clean_prompt_body = clean_prompt_body[0].upper() + clean_prompt_body[1:]
     else:
         clean_prompt_body = user_prompt
 
+    unit_prep = f"bezüglich {unit_str}" if not unit_str.startswith("in ") else f"{unit_str}"
     if is_private:
         body = (
             f"{sal_greeting},\n\n"
-            f"ich wende mich heute mit einer Mitteilung bezüglich {unit_str} an Sie.\n\n"
+            f"ich wende mich heute mit einer Mitteilung {unit_prep} an Sie.\n\n"
             f"{clean_prompt_body}\n\n"
             f"Bei Rückfragen stehe ich Ihnen jederzeit gerne zur Verfügung."
         )
     else:
         body = (
             f"{sal_greeting},\n\n"
-            f"wir wenden uns heute mit einer Mitteilung bezüglich {unit_str} an Sie.\n\n"
+            f"wir wenden uns heute mit einer Mitteilung {unit_prep} an Sie.\n\n"
             f"{clean_prompt_body}\n\n"
             f"Bei Rückfragen stehen wir Ihnen jederzeit gerne zur Verfügung."
         )
