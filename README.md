@@ -14,6 +14,11 @@
   - Strukturierte Verwaltung mit prägnanten Kurznamen (Alias) und Adressen.
   - Gebäude-Stammdaten: **Baujahr**, **Heizungsart** (*Zentralheizung, Etagenheizung, Fernwärme, Wärmepumpe etc.*) und **Energieträger** (*Erdgas, Heizöl, Fernwärme, Strom / Wärmepumpe, Holzpellets*).
   - Wohneinheiten mit **Wohnfläche (m²)**, **Zimmeranzahl** und **Anzahl der lebenden Personen**.
+  - **Liegenschaften sicher löschen:** Kaskadierende Löschung mit Sicherheitsbestätigung (entfernt Liegenschaft, Einheiten, Mieter, Zahlungen und Betriebskosten ohne Datenreste).
+- 🛡️ **Schutz vor Datenverlust & Sofort-Feedback:**
+  - **Ungespeicherte Änderungen (Dirty-Form-Tracking):** Sobald Eingaben geändert werden, signalisiert ein roter Punkt (`🔴`) im Menü und auf den Reitern den ungespeicherten Zustand.
+  - **Intelligenter Navigations-Schutz:** Beim Verlassen eines Bereichs mit ungespeicherten Daten warnt ein Dialog mit 3 Optionen: *Änderungen speichern*, *Änderungen verwerfen* oder *Weiter bearbeiten*.
+  - **Toast-Benachrichtigungen:** Kurzes, klares visuelles Feedback nach jedem Speichern, Bearbeiten oder Löschen in allen Bereichen.
 - 👥 **Gemeinschaftliche Mietverträge (Mehrere Mieter pro Wohnung):**
   - Vollständige Unterstützung mehrerer Mieter auf demselben Mietvertrag (z. B. Ehepaare, eingetragene Lebenspartner oder Wohngemeinschaften).
   - Automatische, DIN-konforme Zusammenführung von Namen und mehrteiligen Briefanreden (*"Sehr geehrter Herr Mustermann, sehr geehrte Frau Mustermann"*).

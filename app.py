@@ -14,6 +14,7 @@ from agent.tools import (
     update_property_alias,
     update_property,
     add_property,
+    delete_property,
     get_tenants_by_property,
     get_units_by_property,
     add_unit,
@@ -59,6 +60,290 @@ init_settings()
 existing_props = query_db("SELECT COUNT(*) as cnt FROM properties;")
 if not existing_props or existing_props[0]["cnt"] == 0:
     seed()
+
+# -------------------------------------------------------------
+# 1. Flash-Meldungen & Toast-Feedback System
+# -------------------------------------------------------------
+def set_flash_message(message: str, icon: str = "✅"):
+    st.session_state["flash_message"] = {"message": message, "icon": icon}
+
+def render_flash_message_if_any():
+    if "flash_message" in st.session_state and st.session_state["flash_message"]:
+        msg_obj = st.session_state.pop("flash_message")
+        st.toast(msg_obj["message"], icon=msg_obj.get("icon", "✅"))
+
+# -------------------------------------------------------------
+# 2. Erkennung ungespeicherter Änderungen (Dirty-Form-Tracking)
+# -------------------------------------------------------------
+def check_tenant_unsaved(t_data) -> bool:
+    if not t_data:
+        return False
+    tid = t_data.get("tenant_id")
+    if not tid or f"te_fn_{tid}" not in st.session_state:
+        return False
+
+    orig_sal = t_data.get("salutation", "Herr") or "Herr"
+    orig_fn = t_data.get("first_name", "") or ""
+    orig_ln = t_data.get("last_name", "") or ""
+    orig_cr = float(t_data.get("cold_rent") or 0.0)
+    orig_nk = float(t_data.get("utility_advance") or 0.0)
+    orig_start = str(t_data.get("lease_start") or "")[:10]
+    orig_end = str(t_data.get("lease_end") or "")
+    orig_em = str(t_data.get("email") or "")
+    orig_ph = str(t_data.get("phone") or "")
+
+    co_list = parse_co_tenants(t_data.get("co_tenants"))
+    co1 = co_list[0] if co_list else {}
+    orig_cosal = co1.get("salutation", "Frau") or "Frau"
+    orig_cofn = co1.get("first_name", "") or ""
+    orig_coln = co1.get("last_name", "") or ""
+
+    if st.session_state.get(f"te_sal_{tid}") != orig_sal:
+        return True
+    if str(st.session_state.get(f"te_fn_{tid}", "")).strip() != orig_fn.strip():
+        return True
+    if str(st.session_state.get(f"te_ln_{tid}", "")).strip() != orig_ln.strip():
+        return True
+    if abs(float(st.session_state.get(f"te_cr_{tid}", 0.0) or 0.0) - orig_cr) > 0.01:
+        return True
+    if abs(float(st.session_state.get(f"te_nk_{tid}", 0.0) or 0.0) - orig_nk) > 0.01:
+        return True
+    if str(st.session_state.get(f"te_em_{tid}", "")).strip() != orig_em.strip():
+        return True
+    if str(st.session_state.get(f"te_ph_{tid}", "")).strip() != orig_ph.strip():
+        return True
+    if str(st.session_state.get(f"te_end_{tid}", "")).strip() != orig_end.strip():
+        return True
+    if str(st.session_state.get(f"te_start_{tid}", ""))[:10] != orig_start:
+        return True
+    if str(st.session_state.get(f"te_cofn_{tid}", "")).strip() != orig_cofn.strip():
+        return True
+    if str(st.session_state.get(f"te_coln_{tid}", "")).strip() != orig_coln.strip():
+        return True
+    if (orig_cofn or orig_coln) and st.session_state.get(f"te_cosal_{tid}") != orig_cosal:
+        return True
+    return False
+
+def check_property_unsaved(prop) -> bool:
+    if not prop:
+        return False
+    pid = prop.get("id") or prop.get("property_id")
+    if not pid or f"pe_name_{pid}" not in st.session_state:
+        return False
+
+    if str(st.session_state.get(f"pe_name_{pid}", "")).strip() != prop["name"].strip():
+        return True
+    if str(st.session_state.get(f"pe_alias_{pid}", "")).strip() != str(prop.get("alias") or "").strip():
+        return True
+    if str(st.session_state.get(f"pe_street_{pid}", "")).strip() != prop["street"].strip():
+        return True
+    if str(st.session_state.get(f"pe_zip_{pid}", "")).strip() != prop["zip_code"].strip():
+        return True
+    if str(st.session_state.get(f"pe_city_{pid}", "")).strip() != prop["city"].strip():
+        return True
+    if abs(float(st.session_state.get(f"pe_area_{pid}", 0.0) or 0.0) - float(prop.get("total_area_sqm") or 0.0)) > 0.1:
+        return True
+    if str(st.session_state.get(f"pe_by_{pid}", "")).strip() != str(prop.get("construction_year") or "").strip():
+        return True
+    if str(st.session_state.get(f"pe_ht_{pid}", "")).strip() != str(prop.get("heating_type") or "").strip():
+        return True
+    if str(st.session_state.get(f"pe_es_{pid}", "")).strip() != str(prop.get("energy_source") or "").strip():
+        return True
+    return False
+
+def check_settings_unsaved(current_settings) -> bool:
+    if not current_settings:
+        return False
+    if "set_lname" not in st.session_state:
+        return False
+
+    cur_sel_type = st.session_state.get("settings_landlord_type_selector")
+    if cur_sel_type:
+        cur_type = "private" if cur_sel_type == "Privater Vermieter" else "property_management"
+        if cur_type != current_settings.get("landlord_type", "private"):
+            return True
+
+    if str(st.session_state.get("set_lname", "")).strip() != str(current_settings.get("landlord_name", "")).strip():
+        return True
+    if str(st.session_state.get("set_lperson", "")).strip() != str(current_settings.get("landlord_contact_person", "")).strip():
+        return True
+    if str(st.session_state.get("set_lstreet", "")).strip() != str(current_settings.get("landlord_street", "")).strip():
+        return True
+    if str(st.session_state.get("set_lzip", "")).strip() != str(current_settings.get("landlord_zip", "")).strip():
+        return True
+    if str(st.session_state.get("set_lcity", "")).strip() != str(current_settings.get("landlord_city", "")).strip():
+        return True
+    if str(st.session_state.get("set_lphone", "")).strip() != str(current_settings.get("landlord_phone", "")).strip():
+        return True
+    if str(st.session_state.get("set_lemail", "")).strip() != str(current_settings.get("landlord_email", "")).strip():
+        return True
+    if str(st.session_state.get("set_liban", "")).strip() != str(current_settings.get("landlord_iban", "")).strip():
+        return True
+    if str(st.session_state.get("set_lbank", "")).strip() != str(current_settings.get("landlord_bank_name", "")).strip():
+        return True
+    return False
+
+def has_unsaved_tenant_in_active_property() -> bool:
+    pid = st.session_state.get("active_property_id")
+    if not pid:
+        return False
+    tenants = get_tenants_by_property(pid)
+    return any(check_tenant_unsaved(t) for t in tenants)
+
+def has_unsaved_property_in_active_property() -> bool:
+    pid = st.session_state.get("active_property_id")
+    if not pid:
+        return False
+    prop = get_property_by_id(pid)
+    return check_property_unsaved(prop) if prop else False
+
+def has_unsaved_lm_changes() -> bool:
+    return has_unsaved_tenant_in_active_property() or has_unsaved_property_in_active_property()
+
+def has_unsaved_settings_changes() -> bool:
+    cur_s = get_all_settings()
+    return check_settings_unsaved(cur_s)
+
+def has_any_unsaved_changes() -> bool:
+    return has_unsaved_lm_changes() or has_unsaved_settings_changes()
+
+def save_current_unsaved():
+    # 1. Liegenschaftsdaten speichern falls ungespeichert
+    pid = st.session_state.get("active_property_id")
+    if pid:
+        prop = get_property_by_id(pid)
+        if prop and check_property_unsaved(prop):
+            update_property(
+                property_id=pid,
+                name=str(st.session_state.get(f"pe_name_{pid}", prop["name"])).strip(),
+                alias=str(st.session_state.get(f"pe_alias_{pid}", prop.get("alias") or "")).strip() or None,
+                street=str(st.session_state.get(f"pe_street_{pid}", prop["street"])).strip(),
+                zip_code=str(st.session_state.get(f"pe_zip_{pid}", prop["zip_code"])).strip(),
+                city=str(st.session_state.get(f"pe_city_{pid}", prop["city"])).strip(),
+                total_area_sqm=float(st.session_state.get(f"pe_area_{pid}", prop.get("total_area_sqm") or 0.0) or 0.0),
+                construction_year=str(st.session_state.get(f"pe_by_{pid}", prop.get("construction_year") or "")).strip() or None,
+                heating_type=str(st.session_state.get(f"pe_ht_{pid}", prop.get("heating_type") or "")).strip() or None,
+                energy_source=str(st.session_state.get(f"pe_es_{pid}", prop.get("energy_source") or "")).strip() or None
+            )
+            for k in [f"pe_name_{pid}", f"pe_alias_{pid}", f"pe_street_{pid}", f"pe_zip_{pid}", f"pe_city_{pid}", f"pe_area_{pid}", f"pe_by_{pid}", f"pe_ht_{pid}", f"pe_es_{pid}"]:
+                st.session_state.pop(k, None)
+
+        # 2. Mieter speichern falls ungespeichert
+        prop_tenants = get_tenants_by_property(pid)
+        for t in prop_tenants:
+            if check_tenant_unsaved(t):
+                tid = t["tenant_id"]
+                co_list = []
+                co_fn = str(st.session_state.get(f"te_cofn_{tid}", "")).strip()
+                co_ln = str(st.session_state.get(f"te_coln_{tid}", "")).strip()
+                if co_fn or co_ln:
+                    co_list.append({
+                        "salutation": st.session_state.get(f"te_cosal_{tid}", "Frau"),
+                        "first_name": co_fn,
+                        "last_name": co_ln,
+                        "email": "",
+                        "phone": ""
+                    })
+                update_tenant(
+                    tenant_id=tid,
+                    first_name=str(st.session_state.get(f"te_fn_{tid}", t["first_name"])).strip(),
+                    last_name=str(st.session_state.get(f"te_ln_{tid}", t["last_name"])).strip(),
+                    salutation=st.session_state.get(f"te_sal_{tid}", t.get("salutation", "Herr")),
+                    unit_id=st.session_state.get(f"te_unit_{tid}", t["unit_id"]),
+                    cold_rent=float(st.session_state.get(f"te_cr_{tid}", t.get("cold_rent") or 0.0) or 0.0),
+                    utility_advance=float(st.session_state.get(f"te_nk_{tid}", t.get("utility_advance") or 0.0) or 0.0),
+                    lease_start=str(st.session_state.get(f"te_start_{tid}", str(t.get("lease_start") or "2025-01-01")[:10])),
+                    lease_end=str(st.session_state.get(f"te_end_{tid}", t.get("lease_end") or "")).strip() or None,
+                    email=str(st.session_state.get(f"te_em_{tid}", t.get("email") or "")).strip(),
+                    phone=str(st.session_state.get(f"te_ph_{tid}", t.get("phone") or "")).strip(),
+                    is_active=1,
+                    co_tenants=co_list
+                )
+                for k in [f"te_sal_{tid}", f"te_fn_{tid}", f"te_ln_{tid}", f"te_unit_{tid}", f"te_cr_{tid}", f"te_nk_{tid}", f"te_start_{tid}", f"te_end_{tid}", f"te_em_{tid}", f"te_ph_{tid}", f"te_cosal_{tid}", f"te_cofn_{tid}", f"te_coln_{tid}"]:
+                    st.session_state.pop(k, None)
+
+    # 3. Einstellungen speichern falls ungespeichert
+    cur_settings = get_all_settings()
+    if check_settings_unsaved(cur_settings):
+        is_priv = (st.session_state.get("settings_landlord_type_selector") == "Privater Vermieter")
+        lname = str(st.session_state.get("set_lname", cur_settings.get("landlord_name", ""))).strip()
+        save_settings({
+            "landlord_type": "private" if is_priv else "property_management",
+            "landlord_name": lname,
+            "landlord_contact_person": str(st.session_state.get("set_lperson", cur_settings.get("landlord_contact_person", ""))).strip(),
+            "landlord_street": str(st.session_state.get("set_lstreet", cur_settings.get("landlord_street", ""))).strip(),
+            "landlord_zip": str(st.session_state.get("set_lzip", cur_settings.get("landlord_zip", ""))).strip(),
+            "landlord_city": str(st.session_state.get("set_lcity", cur_settings.get("landlord_city", ""))).strip(),
+            "landlord_phone": str(st.session_state.get("set_lphone", cur_settings.get("landlord_phone", ""))).strip(),
+            "landlord_email": str(st.session_state.get("set_lemail", cur_settings.get("landlord_email", ""))).strip(),
+            "landlord_account_holder": str(st.session_state.get("set_lholder", cur_settings.get("landlord_account_holder", ""))).strip() or lname,
+            "landlord_bank_name": str(st.session_state.get("set_lbank", cur_settings.get("landlord_bank_name", ""))).strip(),
+            "landlord_iban": str(st.session_state.get("set_liban", cur_settings.get("landlord_iban", ""))).strip(),
+            "landlord_bic": str(st.session_state.get("set_lbic", cur_settings.get("landlord_bic", ""))).strip(),
+            "landlord_tax_id": str(st.session_state.get("set_ltax", cur_settings.get("landlord_tax_id", ""))).strip()
+        })
+        for k in ["set_lname", "set_lperson", "set_lstreet", "set_lzip", "set_lcity", "set_lphone", "set_lemail", "set_lholder", "set_lbank", "set_liban", "set_lbic", "set_ltax"]:
+            st.session_state.pop(k, None)
+
+def discard_current_unsaved():
+    keys_to_clear = [
+        k for k in list(st.session_state.keys()) 
+        if k.startswith("te_") or k.startswith("pe_") or k.startswith("set_")
+    ]
+    for k in keys_to_clear:
+        st.session_state.pop(k, None)
+
+@st.dialog("Ungespeicherte Änderungen", width="medium")
+def confirm_unsaved_dialog():
+    st.warning("⚠️ **Du hast Änderungen vorgenommen, die noch nicht gespeichert wurden.**\n\nWenn du diesen Bereich verlässt, gehen deine Eingaben verloren. Was möchtest du tun?")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        if st.button("Änderungen speichern", type="primary", use_container_width=True, icon=":material/save:"):
+            save_current_unsaved()
+            set_flash_message("Änderungen wurden erfolgreich gespeichert!")
+            st.session_state["show_unsaved_dialog"] = False
+            pending = st.session_state.pop("pending_nav", None)
+            if pending:
+                if pending["type"] == "menu":
+                    st.session_state["current_active_menu"] = pending["target"]
+                    st.session_state["sidebar_nav_selection"] = pending["target"]
+                    st.session_state["show_settings"] = False
+                elif pending["type"] == "settings":
+                    st.session_state["show_settings"] = True
+                    st.session_state["previous_menu"] = pending.get("previous", "Liegenschaften & Mieter")
+                elif pending["type"] == "back_to_properties":
+                    st.session_state["active_property_id"] = None
+                elif pending["type"] == "leave_settings":
+                    st.session_state["show_settings"] = False
+            st.rerun()
+    with c2:
+        if st.button("Änderungen verwerfen", use_container_width=True, icon=":material/delete_forever:"):
+            discard_current_unsaved()
+            set_flash_message("Änderungen wurden verworfen.", icon="ℹ️")
+            st.session_state["show_unsaved_dialog"] = False
+            pending = st.session_state.pop("pending_nav", None)
+            if pending:
+                if pending["type"] == "menu":
+                    st.session_state["current_active_menu"] = pending["target"]
+                    st.session_state["sidebar_nav_selection"] = pending["target"]
+                    st.session_state["show_settings"] = False
+                elif pending["type"] == "settings":
+                    st.session_state["show_settings"] = True
+                    st.session_state["previous_menu"] = pending.get("previous", "Liegenschaften & Mieter")
+                elif pending["type"] == "back_to_properties":
+                    st.session_state["active_property_id"] = None
+                elif pending["type"] == "leave_settings":
+                    st.session_state["show_settings"] = False
+            st.rerun()
+    with c3:
+        if st.button("Weiter bearbeiten", use_container_width=True, icon=":material/edit:"):
+            st.session_state["show_unsaved_dialog"] = False
+            st.session_state.pop("pending_nav", None)
+            st.session_state["sidebar_nav_selection"] = st.session_state.get("current_active_menu", "KI-Assistent & Schriftverkehr")
+            st.rerun()
+
+# Flash-Toast anzeigen falls vorhanden
+render_flash_message_if_any()
 
 # Custom Styling
 st.markdown("""
@@ -310,17 +595,54 @@ with st.sidebar:
     st.caption("Lokaler KI-Immobilienassistent")
     st.markdown("---")
     
-    menu = st.radio(
-        "Navigation",
-        options=["KI-Assistent & Schriftverkehr", "Liegenschaften & Mieter", "Betriebskosten & Finanzen"],
-        captions=["Briefe, Vorlagen & KI-Chat", "Objekte, Einheiten & Mietverträge", "Kostenaufstellung & Abrechnungen"],
-        format_func=lambda x: {
+    has_unsaved_lm = has_unsaved_lm_changes()
+    has_unsaved_set = has_unsaved_settings_changes()
+    has_any_unsaved = has_unsaved_lm or has_unsaved_set
+
+    if "current_active_menu" not in st.session_state:
+        st.session_state["current_active_menu"] = "KI-Assistent & Schriftverkehr"
+    if "sidebar_nav_selection" not in st.session_state:
+        st.session_state["sidebar_nav_selection"] = st.session_state["current_active_menu"]
+
+    options_list = ["KI-Assistent & Schriftverkehr", "Liegenschaften & Mieter", "Betriebskosten & Finanzen"]
+    try:
+        def_idx = options_list.index(st.session_state["sidebar_nav_selection"])
+    except ValueError:
+        def_idx = 0
+
+    def nav_format_func(x):
+        icons = {
             "KI-Assistent & Schriftverkehr": "🤖  KI-Assistent & Schriftverkehr",
             "Liegenschaften & Mieter": "🏢  Liegenschaften & Mieter",
             "Betriebskosten & Finanzen": "📊  Betriebskosten & Finanzen"
-        }.get(x, x),
-        label_visibility="collapsed"
+        }
+        base = icons.get(x, x)
+        if x == "Liegenschaften & Mieter" and has_unsaved_lm:
+            return f"{base}  🔴"
+        return base
+
+    selected_menu = st.radio(
+        "Navigation",
+        options=options_list,
+        index=def_idx,
+        captions=["Briefe, Vorlagen & KI-Chat", "Objekte, Einheiten & Mietverträge", "Kostenaufstellung & Abrechnungen"],
+        format_func=nav_format_func,
+        label_visibility="collapsed",
+        key="main_sidebar_radio"
     )
+
+    if selected_menu != st.session_state["current_active_menu"]:
+        if has_any_unsaved:
+            st.session_state["pending_nav"] = {"type": "menu", "target": selected_menu}
+            st.session_state["show_unsaved_dialog"] = True
+            st.session_state["sidebar_nav_selection"] = st.session_state["current_active_menu"]
+            st.rerun()
+        else:
+            st.session_state["current_active_menu"] = selected_menu
+            st.session_state["sidebar_nav_selection"] = selected_menu
+            st.session_state["show_settings"] = False
+
+    menu = st.session_state["current_active_menu"]
 
     current_settings = get_all_settings()
     model_name = current_settings.get("ollama_model", "llama3")
@@ -346,9 +668,15 @@ def render_settings_page():
     # 1. Zurück-Button oben links
     col_back, col_back_info = st.columns([0.18, 0.82])
     with col_back:
-        if st.button("Zurück", icon=":material/arrow_back:", key="settings_top_back_btn", use_container_width=True, help="Zurück zum vorherigen Bereich"):
-            st.session_state.show_settings = False
-            st.rerun()
+        back_btn_label = f"Zurück{' 🔴' if has_unsaved_settings_changes() else ''}"
+        if st.button(back_btn_label, icon=":material/arrow_back:", key="settings_top_back_btn", use_container_width=True, help="Zurück zum vorherigen Bereich"):
+            if has_unsaved_settings_changes():
+                st.session_state["pending_nav"] = {"type": "leave_settings"}
+                st.session_state["show_unsaved_dialog"] = True
+                st.rerun()
+            else:
+                st.session_state.show_settings = False
+                st.rerun()
     with col_back_info:
         prev_m = st.session_state.get("previous_menu", "Hauptansicht")
         st.caption(f"Zurück zu: **{prev_m}**")
@@ -362,7 +690,7 @@ def render_settings_page():
     current_settings = get_all_settings()
 
     tab_vermieter, tab_ki, tab_briefe, tab_system = st.tabs([
-        "Vermieterdaten & Bankverbindung",
+        f"Vermieterdaten & Bankverbindung{' 🔴' if has_unsaved_settings_changes() else ''}",
         "KI & Sprachmodell (Ollama)",
         "Brief- & Abrechnungsvorgaben",
         "System & Datensicherung"
@@ -376,7 +704,7 @@ def render_settings_page():
         type_options = ["Privater Vermieter", "Hausverwaltung"]
         type_idx = 1 if cur_type in ["property_management", "Hausverwaltung"] else 0
 
-        with st.form("form_landlord_settings"):
+        with st.container(border=True):
             st.markdown("##### 👤 Organisationsform / Vermieter-Typ")
             selected_type = st.segmented_control(
                 "Typ auswählen",
@@ -400,7 +728,7 @@ def render_settings_page():
                 def_name = current_settings.get("landlord_name", "Kirdar Karadag" if is_private else "Hausverwaltung Sonnenhang")
                 if is_private and def_name == "Hausverwaltung Sonnenhang":
                     def_name = current_settings.get("landlord_contact_person") or "Kirdar Karadag"
-                new_lname = st.text_input(name_label, value=def_name, placeholder=name_placeholder)
+                new_lname = st.text_input(name_label, value=def_name, placeholder=name_placeholder, key="set_lname")
 
             with col_lperson:
                 if is_private:
@@ -408,30 +736,32 @@ def render_settings_page():
                         "Zusatz zur Unterschrift (optional)",
                         value=current_settings.get("landlord_contact_person", "") if current_settings.get("landlord_contact_person") != "Hausverwaltung Sonnenhang" else "",
                         placeholder="z. B. Vermieter (oder leer lassen)",
-                        help="Wird unter deinem Namen bei der Unterschrift aufgeführt."
+                        help="Wird unter deinem Namen bei der Unterschrift aufgeführt.",
+                        key="set_lperson"
                     )
                 else:
                     new_lperson = st.text_input(
                         "Ansprechpartner / Sachbearbeiter",
                         value=current_settings.get("landlord_contact_person", "Kirdar Karadag"),
-                        placeholder="z. B. Sabine Meier"
+                        placeholder="z. B. Sabine Meier",
+                        key="set_lperson"
                     )
 
             st.markdown("##### 📍 Anschrift (DIN 5008 Fensterkuvert)")
             col_lstreet, col_lzip, col_lcity = st.columns([2, 1, 1.5])
             with col_lstreet:
-                new_lstreet = st.text_input("Straße und Hausnummer *", value=current_settings.get("landlord_street", "Lindenstraße 14"))
+                new_lstreet = st.text_input("Straße und Hausnummer *", value=current_settings.get("landlord_street", "Lindenstraße 14"), key="set_lstreet")
             with col_lzip:
-                new_lzip = st.text_input("Postleitzahl *", value=current_settings.get("landlord_zip", "10115"))
+                new_lzip = st.text_input("Postleitzahl *", value=current_settings.get("landlord_zip", "10115"), key="set_lzip")
             with col_lcity:
-                new_lcity = st.text_input("Ort *", value=current_settings.get("landlord_city", "Berlin"))
+                new_lcity = st.text_input("Ort *", value=current_settings.get("landlord_city", "Berlin"), key="set_lcity")
 
             st.markdown("##### 📞 Kontaktdaten")
             col_lphone, col_lemail = st.columns(2)
             with col_lphone:
-                new_lphone = st.text_input("Telefonnummer", value=current_settings.get("landlord_phone", "+49 30 12345678"))
+                new_lphone = st.text_input("Telefonnummer", value=current_settings.get("landlord_phone", "+49 30 12345678"), key="set_lphone")
             with col_lemail:
-                new_lemail = st.text_input("E-Mail-Adresse", value=current_settings.get("landlord_email", "kirdar@karadag.de" if is_private else "verwaltung@sonnenhang.de"))
+                new_lemail = st.text_input("E-Mail-Adresse", value=current_settings.get("landlord_email", "kirdar@karadag.de" if is_private else "verwaltung@sonnenhang.de"), key="set_lemail")
 
             st.markdown("##### 💳 Bankverbindung für Mietzahlungen & Nachzahlungen")
             col_lholder, col_lbank = st.columns(2)
@@ -439,19 +769,19 @@ def render_settings_page():
                 def_holder = current_settings.get("landlord_account_holder", def_name)
                 if is_private and def_holder == "Hausverwaltung Sonnenhang":
                     def_holder = def_name
-                new_lholder = st.text_input("Kontoinhaber", value=def_holder)
+                new_lholder = st.text_input("Kontoinhaber", value=def_holder, key="set_lholder")
             with col_lbank:
-                new_lbank = st.text_input("Kreditinstitut (Bankname)", value=current_settings.get("landlord_bank_name", "Berliner Sparkasse"))
+                new_lbank = st.text_input("Kreditinstitut (Bankname)", value=current_settings.get("landlord_bank_name", "Berliner Sparkasse"), key="set_lbank")
 
             col_liban, col_lbic, col_ltax = st.columns([2, 1.2, 1.2])
             with col_liban:
-                new_liban = st.text_input("IBAN", value=current_settings.get("landlord_iban", "DE12 1005 0000 0123 4567 89"))
+                new_liban = st.text_input("IBAN", value=current_settings.get("landlord_iban", "DE12 1005 0000 0123 4567 89"), key="set_liban")
             with col_lbic:
-                new_lbic = st.text_input("BIC", value=current_settings.get("landlord_bic", "BELADEB1XXX"))
+                new_lbic = st.text_input("BIC", value=current_settings.get("landlord_bic", "BELADEB1XXX"), key="set_lbic")
             with col_ltax:
-                new_ltax = st.text_input("Steuernummer / USt-IdNr. (optional)", value=current_settings.get("landlord_tax_id", "27/123/45678"))
+                new_ltax = st.text_input("Steuernummer / USt-IdNr. (optional)", value=current_settings.get("landlord_tax_id", "27/123/45678"), key="set_ltax")
 
-            save_landlord = st.form_submit_button("Vermieterdaten speichern", type="primary", use_container_width=True)
+            save_landlord = st.button("Vermieterdaten speichern", type="primary", use_container_width=True, key="btn_save_landlord_settings")
             if save_landlord:
                 new_sig_title = new_lname.strip() if is_private else (current_settings.get("default_signature_title") or "Ihre Hausverwaltung")
                 if is_private and "hausverwaltung" in new_sig_title.lower():
@@ -475,7 +805,9 @@ def render_settings_page():
                     "landlord_tax_id": new_ltax.strip(),
                     "default_signature_title": new_sig_title
                 })
-                st.success(f"{'Vermieterdaten' if is_private else 'Hausverwaltungsdaten'} wurden erfolgreich gespeichert!")
+                for k in ["set_lname", "set_lperson", "set_lstreet", "set_lzip", "set_lcity", "set_lphone", "set_lemail", "set_lholder", "set_lbank", "set_liban", "set_lbic", "set_ltax"]:
+                    st.session_state.pop(k, None)
+                set_flash_message(f"{'Vermieterdaten' if is_private else 'Hausverwaltungsdaten'} wurden erfolgreich gespeichert!")
                 st.rerun()
 
         # Vorschau-Box
@@ -588,7 +920,7 @@ def render_settings_page():
                     "ollama_url": new_url.strip(),
                     "ai_temperature": str(new_temp)
                 })
-                st.success(f"KI-Konfiguration gespeichert! Aktives Modell: **{final_model}**")
+                set_flash_message(f"KI-Konfiguration gespeichert! Aktives Modell: **{final_model}**")
                 st.rerun()
 
     with tab_briefe:
@@ -650,7 +982,7 @@ def render_settings_page():
                     "default_signature_title": new_sig_title.strip(),
                     "letter_include_bank_details": "true" if inc_bank else "false"
                 })
-                st.success("Brief- und Abrechnungsvorgaben erfolgreich aktualisiert!")
+                set_flash_message("Brief- und Abrechnungsvorgaben erfolgreich aktualisiert!")
                 st.rerun()
 
     with tab_system:
@@ -694,7 +1026,7 @@ def render_settings_page():
             st.warning("Möchtest du alle Einstellungen wirklich auf die Standardwerte zurücksetzen?")
             if st.button("Ja, Einstellungen zurücksetzen", type="primary", use_container_width=True):
                 reset_settings_to_default()
-                st.success("Einstellungen wurden auf Standardwerte zurückgesetzt.")
+                set_flash_message("Einstellungen wurden auf Standardwerte zurückgesetzt.", icon="ℹ️")
                 st.rerun()
 
 def render_document_import_view():
@@ -936,7 +1268,7 @@ def render_document_import_view():
                 st.session_state["doc_import_parsed_data"] = None
                 st.session_state["doc_import_raw_text"] = None
                 st.session_state["doc_import_target_prop_id"] = None
-                st.success("Liegenschaft und Einheiten wurden erfolgreich gespeichert!")
+                set_flash_message("Liegenschaft und Einheiten wurden erfolgreich gespeichert!")
                 st.rerun()
             except Exception as e_save:
                 st.error(f"Fehler beim Speichern in die Datenbank: {e_save}")
@@ -947,6 +1279,10 @@ def render_document_import_view():
             st.session_state["doc_import_raw_text"] = None
             st.session_state["doc_import_target_prop_id"] = None
             st.rerun()
+
+# Prüfen ob Dialog für ungespeicherte Änderungen geöffnet werden muss
+if st.session_state.get("show_unsaved_dialog", False):
+    confirm_unsaved_dialog()
 
 # Automatisch Einstellungen verlassen, wenn der Nutzer in der Sidebar navigiert
 if "last_sidebar_menu" not in st.session_state:
@@ -968,10 +1304,16 @@ elif menu == "KI-Assistent & Schriftverkehr":
     col_hdr_main, col_hdr_gear = st.columns([0.84, 0.16])
     with col_hdr_gear:
         st.write("")
-        if st.button("Einstellungen", icon=":material/settings:", key="btn_gear_assistant", use_container_width=True, help="Einstellungen, Vermieterdaten & Modell öffnen"):
-            st.session_state["previous_menu"] = "KI-Assistent & Schriftverkehr"
-            st.session_state["show_settings"] = True
-            st.rerun()
+        gear_lbl_a = f"Einstellungen{' 🔴' if has_unsaved_settings_changes() else ''}"
+        if st.button(gear_lbl_a, icon=":material/settings:", key="btn_gear_assistant", use_container_width=True, help="Einstellungen, Vermieterdaten & Modell öffnen"):
+            if has_any_unsaved_changes():
+                st.session_state["pending_nav"] = {"type": "settings", "previous": "KI-Assistent & Schriftverkehr"}
+                st.session_state["show_unsaved_dialog"] = True
+                st.rerun()
+            else:
+                st.session_state["previous_menu"] = "KI-Assistent & Schriftverkehr"
+                st.session_state["show_settings"] = True
+                st.rerun()
     with col_hdr_main:
         st.header("KI-Assistent & Schriftverkehr")
         st.write("Erstelle rechtssichere Anschreiben, Mietanpassungen und Nebenkostenabrechnungen oder stelle Fragen zu Liegenschaften und Mietern.")
@@ -1492,10 +1834,16 @@ elif menu == "Liegenschaften & Mieter":
         col_hdr_main, col_hdr_gear = st.columns([0.84, 0.16])
         with col_hdr_gear:
             st.write("")
-            if st.button("Einstellungen", icon=":material/settings:", key="btn_gear_properties", use_container_width=True, help="Einstellungen, Vermieterdaten & Modell öffnen"):
-                st.session_state["previous_menu"] = "Liegenschaften & Mieter"
-                st.session_state["show_settings"] = True
-                st.rerun()
+            gear_lbl_p = f"Einstellungen{' 🔴' if has_unsaved_settings_changes() else ''}"
+            if st.button(gear_lbl_p, icon=":material/settings:", key="btn_gear_properties", use_container_width=True, help="Einstellungen, Vermieterdaten & Modell öffnen"):
+                if has_any_unsaved_changes():
+                    st.session_state["pending_nav"] = {"type": "settings", "previous": "Liegenschaften & Mieter"}
+                    st.session_state["show_unsaved_dialog"] = True
+                    st.rerun()
+                else:
+                    st.session_state["previous_menu"] = "Liegenschaften & Mieter"
+                    st.session_state["show_settings"] = True
+                    st.rerun()
         with col_hdr_main:
             st.header("Liegenschaften & Mieter")
             st.write("Verwalte alle Liegenschaften, Gebäude-Stammdaten und die zugehörigen Mietverhältnisse.")
@@ -1566,7 +1914,7 @@ elif menu == "Liegenschaften & Mieter":
                                 )
                                 # Automatisch eine Standard-Wohneinheit anlegen
                                 add_unit(new_p_id, "Wohnung 1", np_area, "EG", rooms=2.0, person_count=1)
-                                st.success(f"Liegenschaft '{np_name}' erfolgreich angelegt!")
+                                set_flash_message(f"Liegenschaft '{np_name}' erfolgreich angelegt!")
                                 st.rerun()
 
         if not properties:
@@ -1574,7 +1922,7 @@ elif menu == "Liegenschaften & Mieter":
         else:
             for p in properties:
                 with st.container(border=True):
-                    col_info, col_metrics, col_actions = st.columns([0.45, 0.27, 0.28])
+                    col_info, col_metrics, col_actions = st.columns([0.43, 0.25, 0.32])
                     with col_info:
                         alias_part = f" · Alias: **{p['alias']}**" if p.get("alias") else ""
                         st.markdown(f"#### {p['name']}{alias_part}")
@@ -1593,7 +1941,7 @@ elif menu == "Liegenschaften & Mieter":
                         st.caption(f"Gesamtfläche: {float(p.get('total_area_sqm') or 0.0):.1f} m²")
                     with col_actions:
                         st.write("")
-                        c_open, c_alias = st.columns([1.2, 0.8])
+                        c_open, c_alias, c_del = st.columns([1.1, 0.8, 0.8])
                         with c_open:
                             if st.button("Öffnen", icon=":material/arrow_forward:", key=f"open_prop_{p['property_id']}", type="primary", use_container_width=True):
                                 st.session_state["active_property_id"] = p["property_id"]
@@ -1605,7 +1953,14 @@ elif menu == "Liegenschaften & Mieter":
                                 new_alias_input = st.text_input("Alias festlegen", value=cur_alias, key=f"input_alias_{p['property_id']}")
                                 if st.button("Speichern", key=f"save_alias_{p['property_id']}", icon=":material/save:", type="primary", use_container_width=True):
                                     update_property_alias(p["property_id"], new_alias_input.strip() if new_alias_input.strip() else None)
-                                    st.success("Alias aktualisiert!")
+                                    set_flash_message(f"Alias für '{p['name']}' gespeichert!")
+                                    st.rerun()
+                        with c_del:
+                            with st.popover("Löschen", icon=":material/delete:", use_container_width=True):
+                                st.error(f"**Liegenschaft '{p['name']}' wirklich löschen?**\n\nAlle Einheiten, Mieter und Nebenkostenabrechnungen werden unwiderruflich gelöscht.")
+                                if st.button("Endgültig löschen", type="primary", key=f"del_prop_btn_{p['property_id']}", use_container_width=True):
+                                    delete_property(p["property_id"])
+                                    set_flash_message(f"Liegenschaft '{p['name']}' wurde gelöscht.", icon="🗑️")
                                     st.rerun()
 
     # LEVEL 2: Detailansicht einer ausgewählten Liegenschaft
@@ -1615,16 +1970,28 @@ elif menu == "Liegenschaften & Mieter":
             st.session_state["active_property_id"] = None
             st.rerun()
 
-        col_back, col_space, col_gear = st.columns([0.22, 0.62, 0.16])
+        col_back, col_space, col_gear = st.columns([0.24, 0.60, 0.16])
         with col_back:
-            if st.button("Alle Liegenschaften", icon=":material/arrow_back:", key="btn_back_to_properties", use_container_width=True):
-                st.session_state["active_property_id"] = None
-                st.rerun()
+            back_lbl_p = f"Alle Liegenschaften{' 🔴' if has_unsaved_lm_changes() else ''}"
+            if st.button(back_lbl_p, icon=":material/arrow_back:", key="btn_back_to_properties", use_container_width=True):
+                if has_unsaved_lm_changes():
+                    st.session_state["pending_nav"] = {"type": "back_to_properties"}
+                    st.session_state["show_unsaved_dialog"] = True
+                    st.rerun()
+                else:
+                    st.session_state["active_property_id"] = None
+                    st.rerun()
         with col_gear:
-            if st.button("Einstellungen", icon=":material/settings:", key="btn_gear_property_detail", use_container_width=True, help="Einstellungen, Vermieterdaten & Modell öffnen"):
-                st.session_state["previous_menu"] = "Liegenschaften & Mieter"
-                st.session_state["show_settings"] = True
-                st.rerun()
+            gear_lbl_pd = f"Einstellungen{' 🔴' if has_unsaved_settings_changes() else ''}"
+            if st.button(gear_lbl_pd, icon=":material/settings:", key="btn_gear_property_detail", use_container_width=True, help="Einstellungen, Vermieterdaten & Modell öffnen"):
+                if has_unsaved_lm_changes():
+                    st.session_state["pending_nav"] = {"type": "settings", "previous": "Liegenschaften & Mieter"}
+                    st.session_state["show_unsaved_dialog"] = True
+                    st.rerun()
+                else:
+                    st.session_state["previous_menu"] = "Liegenschaften & Mieter"
+                    st.session_state["show_settings"] = True
+                    st.rerun()
 
         alias_display = f" · Alias: {prop['alias']}" if prop.get("alias") else ""
         st.header(f"{prop['name']}{alias_display}")
@@ -1642,12 +2009,15 @@ elif menu == "Liegenschaften & Mieter":
         prop_tenants = get_tenants_by_property(active_property_id)
         prop_units = get_units_by_property(active_property_id)
 
+        has_t_dirty = has_unsaved_tenant_in_active_property()
+        has_p_dirty = has_unsaved_property_in_active_property()
+
         tab_tenants, tab_add_t, tab_edit_t, tab_units, tab_prop_settings = st.tabs([
             "Mieterübersicht",
             "Neuen Mieter anlegen",
-            "Mieter bearbeiten & löschen",
+            f"Mieter bearbeiten & löschen{' 🔴' if has_t_dirty else ''}",
             "Wohneinheiten",
-            "Liegenschaftsdaten & Alias"
+            f"Liegenschaftsdaten & Alias{' 🔴' if has_p_dirty else ''}"
         ])
 
         with tab_tenants:
@@ -1746,7 +2116,7 @@ elif menu == "Liegenschaften & Mieter":
                             phone=new_ph,
                             co_tenants=co_list
                         )
-                        st.success(f"Mieter {new_sal} {new_fn} {new_ln} wurde erfolgreich angelegt!")
+                        set_flash_message(f"Mieter {new_sal} {new_fn} {new_ln} wurde erfolgreich angelegt!")
                         st.rerun()
 
         with tab_edit_t:
@@ -1755,17 +2125,18 @@ elif menu == "Liegenschaften & Mieter":
                 tenant_dict = {f"{t.get('salutation', 'Herr')} {t['display_name']} (ID {t['tenant_id']} · {t['unit_number']})": t for t in prop_tenants}
                 selected_label = st.selectbox("Wähle einen Mieter zum Bearbeiten", list(tenant_dict.keys()), key="edit_prop_select_tenant")
                 t_data = tenant_dict[selected_label]
+                tid = t_data["tenant_id"]
 
-                with st.form("form_edit_tenant_prop"):
+                with st.container(border=True):
                     col_e_sal, col_e_fn, col_e_ln = st.columns([1, 2, 2])
                     with col_e_sal:
                         cur_sal = t_data.get("salutation", "Herr") or "Herr"
                         sal_idx = 1 if cur_sal == "Frau" else 0
-                        edit_sal = st.selectbox("Anrede", ["Herr", "Frau"], index=sal_idx)
+                        edit_sal = st.selectbox("Anrede", ["Herr", "Frau"], index=sal_idx, key=f"te_sal_{tid}")
                     with col_e_fn:
-                        edit_fn = st.text_input("Vorname *", value=t_data.get("first_name", ""))
+                        edit_fn = st.text_input("Vorname *", value=t_data.get("first_name", ""), key=f"te_fn_{tid}")
                     with col_e_ln:
-                        edit_ln = st.text_input("Nachname *", value=t_data.get("last_name", ""))
+                        edit_ln = st.text_input("Nachname *", value=t_data.get("last_name", ""), key=f"te_ln_{tid}")
 
                     col_e_u, col_e_cr, col_e_nk = st.columns(3)
                     with col_e_u:
@@ -1776,12 +2147,13 @@ elif menu == "Liegenschaften & Mieter":
                             if unit_options[key] == t_data.get("unit_id"):
                                 curr_idx = idx
                                 break
-                        edit_unit_label = st.selectbox("Wohneinheit", unit_keys, index=curr_idx)
+                        edit_unit_label = st.selectbox("Wohneinheit", unit_keys, index=curr_idx, key=f"te_unit_lbl_{tid}")
                         edit_unit_id = unit_options[edit_unit_label]
+                        st.session_state[f"te_unit_{tid}"] = edit_unit_id
                     with col_e_cr:
-                        edit_cr = st.number_input("Kaltmiete (€)", min_value=0.0, value=float(t_data.get("cold_rent") or 0.0), step=50.0)
+                        edit_cr = st.number_input("Kaltmiete (€)", min_value=0.0, value=float(t_data.get("cold_rent") or 0.0), step=50.0, key=f"te_cr_{tid}")
                     with col_e_nk:
-                        edit_nk = st.number_input("NK-Vorauszahlung (€)", min_value=0.0, value=float(t_data.get("utility_advance") or 0.0), step=10.0)
+                        edit_nk = st.number_input("NK-Vorauszahlung (€)", min_value=0.0, value=float(t_data.get("utility_advance") or 0.0), step=10.0, key=f"te_nk_{tid}")
 
                     col_e_start, col_e_end = st.columns(2)
                     with col_e_start:
@@ -1789,15 +2161,15 @@ elif menu == "Liegenschaften & Mieter":
                             parsed_start = datetime.strptime(str(t_data.get("lease_start") or "2025-01-01")[:10], "%Y-%m-%d").date()
                         except Exception:
                             parsed_start = date.today()
-                        edit_start = st.date_input("Mietbeginn", value=parsed_start)
+                        edit_start = st.date_input("Mietbeginn", value=parsed_start, key=f"te_start_{tid}")
                     with col_e_end:
-                        edit_end = st.text_input("Mietende (optional)", value=str(t_data.get("lease_end") or ""))
+                        edit_end = st.text_input("Mietende (optional)", value=str(t_data.get("lease_end") or ""), key=f"te_end_{tid}")
 
                     col_e_em, col_e_ph = st.columns(2)
                     with col_e_em:
-                        edit_em = st.text_input("E-Mail-Adresse", value=str(t_data.get("email") or ""))
+                        edit_em = st.text_input("E-Mail-Adresse", value=str(t_data.get("email") or ""), key=f"te_em_{tid}")
                     with col_e_ph:
-                        edit_ph = st.text_input("Telefonnummer", value=str(t_data.get("phone") or ""))
+                        edit_ph = st.text_input("Telefonnummer", value=str(t_data.get("phone") or ""), key=f"te_ph_{tid}")
 
                     existing_co = parse_co_tenants(t_data.get("co_tenants"))
                     co1 = existing_co[0] if existing_co else {}
@@ -1807,17 +2179,20 @@ elif menu == "Liegenschaften & Mieter":
                     with col_eco_sal:
                         co_cur_sal = co1.get("salutation", "Frau")
                         co_sal_idx = 1 if co_cur_sal == "Herr" else 0
-                        edit_co_sal = st.selectbox("Anrede (2. Mieter)", ["Frau", "Herr"], index=co_sal_idx, key=f"edit_co_sal_{t_data['tenant_id']}")
+                        edit_co_sal = st.selectbox("Anrede (2. Mieter)", ["Frau", "Herr"], index=co_sal_idx, key=f"te_cosal_{tid}")
                     with col_eco_fn:
-                        edit_co_fn = st.text_input("Vorname (2. Mieter)", value=co1.get("first_name", ""), key=f"edit_co_fn_{t_data['tenant_id']}", placeholder="z. B. Laura")
+                        edit_co_fn = st.text_input("Vorname (2. Mieter)", value=co1.get("first_name", ""), key=f"te_cofn_{tid}", placeholder="z. B. Laura")
                     with col_eco_ln:
-                        edit_co_ln = st.text_input("Nachname (2. Mieter)", value=co1.get("last_name", ""), key=f"edit_co_ln_{t_data['tenant_id']}", placeholder="z. B. Schmidt")
+                        edit_co_ln = st.text_input("Nachname (2. Mieter)", value=co1.get("last_name", ""), key=f"te_coln_{tid}", placeholder="z. B. Schmidt")
 
                     col_save, col_del = st.columns([3, 1])
+                    confirm_del = False
                     with col_save:
-                        save_clicked = st.form_submit_button("Änderungen speichern", icon=":material/save:", type="primary", use_container_width=True)
+                        save_clicked = st.button("Änderungen speichern", icon=":material/save:", type="primary", use_container_width=True, key=f"btn_save_t_{tid}")
                     with col_del:
-                        delete_clicked = st.form_submit_button("Mieter löschen", icon=":material/delete:", use_container_width=True)
+                        with st.popover("Mieter löschen", icon=":material/delete:", use_container_width=True):
+                            st.error(f"**Mieter '{t_data['first_name']} {t_data['last_name']}' wirklich löschen?**")
+                            confirm_del = st.button("Endgültig löschen", type="primary", key=f"btn_confirm_del_t_{tid}", use_container_width=True)
 
                     if save_clicked:
                         if not edit_fn.strip() or not edit_ln.strip():
@@ -1833,7 +2208,7 @@ elif menu == "Liegenschaften & Mieter":
                                     "phone": ""
                                 })
                             update_tenant(
-                                tenant_id=t_data["tenant_id"],
+                                tenant_id=tid,
                                 first_name=edit_fn.strip(),
                                 last_name=edit_ln.strip(),
                                 salutation=edit_sal,
@@ -1847,12 +2222,16 @@ elif menu == "Liegenschaften & Mieter":
                                 is_active=1,
                                 co_tenants=upd_co_list
                             )
-                            st.success(f"Daten von {edit_sal} {edit_fn} {edit_ln} wurden erfolgreich aktualisiert!")
+                            for k in [f"te_sal_{tid}", f"te_fn_{tid}", f"te_ln_{tid}", f"te_unit_{tid}", f"te_unit_lbl_{tid}", f"te_cr_{tid}", f"te_nk_{tid}", f"te_start_{tid}", f"te_end_{tid}", f"te_em_{tid}", f"te_ph_{tid}", f"te_cosal_{tid}", f"te_cofn_{tid}", f"te_coln_{tid}"]:
+                                st.session_state.pop(k, None)
+                            set_flash_message(f"Änderungen an Mieter {edit_fn} {edit_ln} erfolgreich gespeichert!")
                             st.rerun()
 
-                    if delete_clicked:
-                        delete_tenant(t_data["tenant_id"])
-                        st.warning(f"Mieter {t_data['first_name']} {t_data['last_name']} wurde gelöscht.")
+                    if confirm_del:
+                        for k in [f"te_sal_{tid}", f"te_fn_{tid}", f"te_ln_{tid}", f"te_unit_{tid}", f"te_unit_lbl_{tid}", f"te_cr_{tid}", f"te_nk_{tid}", f"te_start_{tid}", f"te_end_{tid}", f"te_em_{tid}", f"te_ph_{tid}", f"te_cosal_{tid}", f"te_cofn_{tid}", f"te_coln_{tid}"]:
+                            st.session_state.pop(k, None)
+                        delete_tenant(tid)
+                        set_flash_message(f"Mieter {t_data['first_name']} {t_data['last_name']} wurde gelöscht.", icon="🗑️")
                         st.rerun()
             else:
                 st.info("Keine Mieter in dieser Liegenschaft vorhanden.")
@@ -1901,7 +2280,7 @@ elif menu == "Liegenschaften & Mieter":
                                 st.error("Bitte Bezeichnung angeben!")
                             else:
                                 add_unit(active_property_id, u_num.strip(), u_area, u_floor, rooms=u_rooms, person_count=u_persons)
-                                st.success(f"Wohneinheit '{u_num}' angelegt!")
+                                set_flash_message(f"Wohneinheit '{u_num}' angelegt!")
                                 st.rerun()
 
             if prop_units:
@@ -1920,45 +2299,46 @@ elif menu == "Liegenschaften & Mieter":
                         eu_persons = st.number_input("Anzahl der lebenden Personen", min_value=1, value=int(target_u.get("person_count") or 1), step=1)
                         if st.form_submit_button("Wohneinheit aktualisieren", icon=":material/save:", type="primary", use_container_width=True):
                             update_unit(target_u["unit_id"], eu_num.strip(), eu_area, eu_floor.strip(), rooms=eu_rooms, person_count=eu_persons)
-                            st.success(f"Wohneinheit '{eu_num}' erfolgreich aktualisiert!")
+                            set_flash_message(f"Wohneinheit '{eu_num}' erfolgreich aktualisiert!")
                             st.rerun()
 
         with tab_prop_settings:
             st.subheader("Liegenschaftsdaten & Alias")
             st.caption("Bearbeite hier den Alias oder die Stammdaten dieser Liegenschaft.")
+            pid = active_property_id
 
-            with st.form("form_edit_property_details"):
-                ep_name = st.text_input("Name der Liegenschaft *", value=prop["name"])
-                ep_alias = st.text_input("Optionaler Alias (Kurzname)", value=prop.get("alias") or "")
-                ep_street = st.text_input("Straße & Hausnummer *", value=prop["street"])
+            with st.container(border=True):
+                ep_name = st.text_input("Name der Liegenschaft *", value=prop["name"], key=f"pe_name_{pid}")
+                ep_alias = st.text_input("Optionaler Alias (Kurzname)", value=prop.get("alias") or "", key=f"pe_alias_{pid}")
+                ep_street = st.text_input("Straße & Hausnummer *", value=prop["street"], key=f"pe_street_{pid}")
                 c_ep_z, c_ep_c = st.columns([1, 2])
                 with c_ep_z:
-                    ep_zip = st.text_input("PLZ *", value=prop["zip_code"])
+                    ep_zip = st.text_input("PLZ *", value=prop["zip_code"], key=f"pe_zip_{pid}")
                 with c_ep_c:
-                    ep_city = st.text_input("Ort *", value=prop["city"])
-                ep_area = st.number_input("Gesamtfläche (m²) *", min_value=0.0, value=float(prop["total_area_sqm"] or 0.0), step=10.0)
+                    ep_city = st.text_input("Ort *", value=prop["city"], key=f"pe_city_{pid}")
+                ep_area = st.number_input("Gesamtfläche (m²) *", min_value=0.0, value=float(prop["total_area_sqm"] or 0.0), step=10.0, key=f"pe_area_{pid}")
 
                 col_ep_by, col_ep_ht, col_ep_es = st.columns(3)
                 with col_ep_by:
-                    ep_by = st.text_input("Baujahr (optional)", value=str(prop.get("construction_year") or ""))
+                    ep_by = st.text_input("Baujahr (optional)", value=str(prop.get("construction_year") or ""), key=f"pe_by_{pid}")
                 with col_ep_ht:
                     cur_ht = prop.get("heating_type") or ""
                     ht_opts = ["", "Zentralheizung", "Etagenheizung", "Fernwärme", "Wärmepumpe", "Einzelöfen", "Sonstige"]
                     ht_idx = ht_opts.index(cur_ht) if cur_ht in ht_opts else (len(ht_opts) - 1 if cur_ht else 0)
-                    ep_ht = st.selectbox("Heizungsart (optional)", ht_opts, index=ht_idx)
+                    ep_ht = st.selectbox("Heizungsart (optional)", ht_opts, index=ht_idx, key=f"pe_ht_{pid}")
                 with col_ep_es:
                     cur_es = prop.get("energy_source") or ""
                     es_opts = ["", "Erdgas", "Heizöl", "Fernwärme", "Strom / Umweltwärme", "Holzpellets", "Sonstige"]
                     es_idx = es_opts.index(cur_es) if cur_es in es_opts else (len(es_opts) - 1 if cur_es else 0)
-                    ep_es = st.selectbox("Energieträger (optional)", es_opts, index=es_idx)
+                    ep_es = st.selectbox("Energieträger (optional)", es_opts, index=es_idx, key=f"pe_es_{pid}")
 
-                save_p_btn = st.form_submit_button("Liegenschaft speichern", icon=":material/save:", type="primary", use_container_width=True)
+                save_p_btn = st.button("Liegenschaft speichern", icon=":material/save:", type="primary", use_container_width=True, key=f"btn_save_prop_{pid}")
                 if save_p_btn:
                     if not ep_name.strip() or not ep_street.strip() or not ep_zip.strip() or not ep_city.strip():
                         st.error("Bitte alle Pflichtfelder (Name, Straße, PLZ, Ort) ausfüllen!")
                     else:
                         update_property(
-                            property_id=active_property_id,
+                            property_id=pid,
                             name=ep_name.strip(),
                             alias=ep_alias.strip() if ep_alias.strip() else None,
                             street=ep_street.strip(),
@@ -1969,7 +2349,21 @@ elif menu == "Liegenschaften & Mieter":
                             heating_type=ep_ht.strip() or None,
                             energy_source=ep_es.strip() or None
                         )
-                        st.success("Liegenschaftsdaten erfolgreich gespeichert!")
+                        for k in [f"pe_name_{pid}", f"pe_alias_{pid}", f"pe_street_{pid}", f"pe_zip_{pid}", f"pe_city_{pid}", f"pe_area_{pid}", f"pe_by_{pid}", f"pe_ht_{pid}", f"pe_es_{pid}"]:
+                            st.session_state.pop(k, None)
+                        set_flash_message(f"Liegenschaftsdaten für '{ep_name}' erfolgreich gespeichert!")
+                        st.rerun()
+
+            st.markdown("---")
+            with st.container(border=True):
+                st.markdown("##### ⚠️ Gefahrenbereich")
+                st.caption("Das Löschen dieser Liegenschaft entfernt auch alle zugehörigen Wohneinheiten, Mietverhältnisse und Betriebskostenabrechnungen unwiderruflich.")
+                with st.popover("Liegenschaft endgültig löschen", icon=":material/delete_forever:", use_container_width=True):
+                    st.error(f"**Bist du absolut sicher?**\n\nDie Liegenschaft '{prop['name']}' und alle dazugehörigen Daten werden unwiderruflich gelöscht.")
+                    if st.button("Ja, Liegenschaft jetzt löschen", type="primary", key=f"btn_delete_prop_detail_{pid}", use_container_width=True):
+                        delete_property(pid)
+                        st.session_state["active_property_id"] = None
+                        set_flash_message(f"Liegenschaft '{prop['name']}' wurde gelöscht.", icon="🗑️")
                         st.rerun()
 
 # TAB 3: Betriebskosten & Finanzen
@@ -1977,10 +2371,16 @@ elif menu == "Betriebskosten & Finanzen":
     col_hdr_main, col_hdr_gear = st.columns([0.84, 0.16])
     with col_hdr_gear:
         st.write("")
-        if st.button("Einstellungen", icon=":material/settings:", key="btn_gear_finances", use_container_width=True, help="Einstellungen, Vermieterdaten & Modell öffnen"):
-            st.session_state["previous_menu"] = "Betriebskosten & Finanzen"
-            st.session_state["show_settings"] = True
-            st.rerun()
+        gear_lbl_f = f"Einstellungen{' 🔴' if has_unsaved_settings_changes() else ''}"
+        if st.button(gear_lbl_f, icon=":material/settings:", key="btn_gear_finances", use_container_width=True, help="Einstellungen, Vermieterdaten & Modell öffnen"):
+            if has_any_unsaved_changes():
+                st.session_state["pending_nav"] = {"type": "settings", "previous": "Betriebskosten & Finanzen"}
+                st.session_state["show_unsaved_dialog"] = True
+                st.rerun()
+            else:
+                st.session_state["previous_menu"] = "Betriebskosten & Finanzen"
+                st.session_state["show_settings"] = True
+                st.rerun()
     with col_hdr_main:
         st.header("Betriebskosten & Finanzen")
         st.caption("Umfassende Verwaltung der umlagefähigen Betriebskosten (BetrKV), mehrjähriger Kostenaufstellungen und der Jahresabrechnungen aller Mieter.")
@@ -2251,12 +2651,12 @@ elif menu == "Betriebskosten & Finanzen":
                         description=edit_desc,
                         receipt_date=str(edit_date)
                     )
-                    st.success(f"Kostenposition #{cur_exp['id']} ({edit_cat}) wurde erfolgreich aktualisiert.")
+                    set_flash_message(f"Kostenposition #{cur_exp['id']} ({edit_cat}) wurde erfolgreich aktualisiert.")
                     st.rerun()
 
                 if btn_del:
                     delete_expense(cur_exp["id"])
-                    st.warning(f"Kostenposition #{cur_exp['id']} ({cur_exp['category']}) wurde gelöscht.")
+                    set_flash_message(f"Kostenposition #{cur_exp['id']} ({cur_exp['category']}) wurde gelöscht.", icon="🗑️")
                     st.rerun()
         else:
             st.info(f"Für das Abrechnungsjahr {selected_year} sind noch keine Kostenpositionen erfasst.")
@@ -2266,7 +2666,7 @@ elif menu == "Betriebskosten & Finanzen":
                     pref_copy_yr = 2025 if 2025 in other_years else other_years[0]
                     if st.button(f"Kostenpositionen aus {pref_copy_yr} als Vorlage kopieren", type="primary", key="btn_copy_template_edit"):
                         count = copy_expenses_from_year(pref_copy_yr, selected_year)
-                        st.success(f"{count} Positionen aus {pref_copy_yr} für {selected_year} übernommen.")
+                        set_flash_message(f"{count} Positionen aus {pref_copy_yr} für {selected_year} übernommen.")
                         st.rerun()
 
     # 3. TAB: Neue Kostenposition erfassen
@@ -2331,6 +2731,6 @@ elif menu == "Betriebskosten & Finanzen":
                         description=add_desc.strip(),
                         receipt_date=str(add_date)
                     )
-                    st.success(f"Kostenposition '{final_cat}' über {add_amt:,.2f} € erfolgreich für {int(add_yr)} gespeichert.")
+                    set_flash_message(f"Kostenposition '{final_cat}' über {add_amt:,.2f} € erfolgreich für {int(add_yr)} gespeichert.")
                     st.session_state["active_finance_year"] = int(add_yr)
                     st.rerun()
