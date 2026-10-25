@@ -17,6 +17,7 @@ from agent.tools import (
     get_tenants_by_property,
     get_units_by_property,
     add_unit,
+    save_imported_property_data,
     add_new_tenant,
     update_tenant,
     delete_tenant,
@@ -30,6 +31,7 @@ from agent.tools import (
     get_annual_utility_statements,
     create_utility_statement_for_tenant
 )
+from agent.doc_parser import extract_text_from_pdf, parse_property_document
 from database.settings import (
     init_settings,
     get_all_settings,
@@ -693,6 +695,232 @@ def render_settings_page():
                 st.success("Einstellungen wurden auf Standardwerte zurückgesetzt.")
                 st.rerun()
 
+def render_document_import_view():
+    """Rendert die Ansicht zur Dokumentenanalyse & automatischen Liegenschafts-/Einheitenerfassung."""
+    # 1. Obere Navigationsleiste mit Zurück-Button
+    col_back, col_space, col_gear = st.columns([0.24, 0.60, 0.16])
+    with col_back:
+        if st.button("Zurück zu Liegenschaften", icon=":material/arrow_back:", key="btn_doc_import_top_back", use_container_width=True):
+            st.session_state["doc_import_active"] = False
+            st.session_state["doc_import_parsed_data"] = None
+            st.session_state["doc_import_target_prop_id"] = None
+            st.rerun()
+    with col_gear:
+        if st.button("Einstellungen", icon=":material/settings:", key="btn_gear_doc_import", use_container_width=True, help="Einstellungen öffnen"):
+            st.session_state["previous_menu"] = "Liegenschaften & Mieter"
+            st.session_state["show_settings"] = True
+            st.rerun()
+
+    # Titel & Beschreibung
+    st.header("Liegenschaft & Einheiten aus Dokument erfassen")
+    st.write("Lade ein PDF-Dokument (z. B. **Zensus 2022 Gebäude- und Wohnungszählung**, Teilungserklärung, Mietverträge oder Wohnungsliste) hoch. Die Daten werden automatisch analysiert und dir übersichtlich zur Prüfung angezeigt, bevor sie in deiner Liegenschaft gespeichert werden.")
+
+    # Datenschutz & Lokalitäts-Hinweis
+    st.info("🔒 **100% Lokale Verarbeitung:** Dein Dokument wird ausschließlich lokal auf deinem PC ausgelesen und durch dein lokales Ollama-Modell verarbeitet. Es werden zu keinem Zeitpunkt Daten oder Dokumente ins Internet übertragen.")
+
+    current_settings = get_all_settings()
+    model_name = current_settings.get("ollama_model", "llama3")
+
+    # Upload-Bereich
+    with st.container(border=True):
+        st.markdown("##### 📁 Dokument auswählen")
+        uploaded_file = st.file_uploader(
+            "PDF-Dokument hochladen",
+            type=["pdf"],
+            key="prop_doc_upload_input",
+            help="Wähle eine PDF-Datei aus (z. B. Zensus 2022 Erfassungsbogen, Wohnungsübersicht etc.)"
+        )
+
+        if uploaded_file is not None:
+            col_f_info, col_f_btn = st.columns([0.65, 0.35])
+            with col_f_info:
+                file_size_kb = len(uploaded_file.getvalue()) / 1024
+                st.caption(f"Ausgewählte Datei: **{uploaded_file.name}** ({file_size_kb:.1f} KB)")
+            with col_f_btn:
+                start_analysis = st.button("Dokument jetzt analysieren", icon=":material/document_scanner:", type="primary", use_container_width=True, key="btn_start_doc_analysis")
+
+            if start_analysis:
+                with st.spinner("Extrahiere Dokumentdaten und analysiere Wohnungen mit lokalem Modell..."):
+                    try:
+                        raw_text = extract_text_from_pdf(uploaded_file)
+                        if not raw_text.strip():
+                            st.error("In diesem PDF konnte kein lesbarer Text gefunden werden (möglicherweise handelt es sich um einen reinen Bild-Scan ohne OCR-Textebene).")
+                        else:
+                            parsed = parse_property_document(raw_text, model=model_name)
+                            st.session_state["doc_import_parsed_data"] = parsed
+                            st.session_state["doc_import_raw_text"] = raw_text
+                            st.session_state["doc_import_file_name"] = uploaded_file.name
+                            st.success(f"Dokument erfolgreich analysiert! {len(parsed.get('units', []))} Wohneinheiten erkannt.")
+                    except Exception as ex:
+                        st.error(f"Fehler bei der Analyse: {ex}")
+
+    # Wenn Daten analysiert wurden: Prüf- und Bearbeitungsmaske
+    parsed_data = st.session_state.get("doc_import_parsed_data")
+    if parsed_data:
+        st.markdown("---")
+        st.markdown("### 📋 Erfasste Daten prüfen & anpassen")
+        st.caption("Prüfe die erkannten Liegenschafts- und Wohnungsdaten. Du kannst jedes Feld vor der Übernahme frei anpassen.")
+
+        existing_props = get_all_properties()
+        target_prop_preset = st.session_state.get("doc_import_target_prop_id")
+
+        # 1. Liegenschafts-Zuordnung
+        st.markdown("##### 1. Liegenschaftszuordnung")
+        target_options = ["Neue Liegenschaft anlegen"]
+        if existing_props:
+            target_options.append("Zu bestehender Liegenschaft hinzufügen / aktualisieren")
+
+        default_target_idx = 1 if (target_prop_preset and existing_props) else 0
+        dest_mode = st.radio(
+            "Wohin sollen die erfassten Einheiten gespeichert werden?",
+            options=target_options,
+            index=default_target_idx,
+            horizontal=True
+        )
+
+        selected_existing_prop_id = None
+        if dest_mode == "Neue Liegenschaft anlegen":
+            col_pn, col_pa = st.columns([1.5, 1])
+            with col_pn:
+                def_p_name = parsed_data.get("property_name") or "Neue Liegenschaft"
+                prop_name_input = st.text_input("Name der Liegenschaft *", value=def_p_name, key="import_p_name", placeholder="z. B. Wohnanlage Sonnenhang")
+            with col_pa:
+                def_p_alias = parsed_data.get("alias") or ""
+                prop_alias_input = st.text_input("Optionaler Alias (Kurzname)", value=def_p_alias, key="import_p_alias", placeholder="z. B. Sonnenhang")
+
+            col_str, col_z, col_c = st.columns([2, 1, 1.5])
+            with col_str:
+                def_str = parsed_data.get("street") or ""
+                prop_street_input = st.text_input("Straße & Hausnummer *", value=def_str, key="import_p_street", placeholder="z. B. Lindenstraße 14")
+            with col_z:
+                def_zip = parsed_data.get("zip_code") or ""
+                prop_zip_input = st.text_input("PLZ *", value=def_zip, key="import_p_zip", placeholder="10115")
+            with col_c:
+                def_city = parsed_data.get("city") or ""
+                prop_city_input = st.text_input("Ort *", value=def_city, key="import_p_city", placeholder="Berlin")
+        else:
+            prop_map = {f"{p['name']} ({p['street']}, {p['zip_code']} {p['city']})": p["property_id"] for p in existing_props}
+            default_p_idx = 0
+            if target_prop_preset:
+                for idx, (lbl, pid) in enumerate(prop_map.items()):
+                    if pid == target_prop_preset:
+                        default_p_idx = idx
+                        break
+            sel_label = st.selectbox("Bestehende Liegenschaft auswählen *", list(prop_map.keys()), index=default_p_idx)
+            selected_existing_prop_id = prop_map[sel_label]
+            prop_name_input = ""
+            prop_alias_input = ""
+            prop_street_input = ""
+            prop_zip_input = ""
+            prop_city_input = ""
+
+        st.markdown("##### 2. Erkannte Wohneinheiten & Mieter")
+        st.caption("Passe Werte direkt in der Tabelle an. Du kannst Zeilen bearbeiten, löschen oder über das '+' am Tabellenende neue hinzufügen.")
+
+        units_list = parsed_data.get("units", [])
+        if not units_list:
+            units_list = [{
+                "unit_number": "Wohnung 1",
+                "floor": "EG",
+                "area_sqm": 65.0,
+                "rooms": 2,
+                "salutation": "Herr",
+                "first_name": "",
+                "last_name": "",
+                "cold_rent": 0.0,
+                "utility_advance": 0.0
+            }]
+
+        df_editor_data = pd.DataFrame(units_list)
+        for col_name in ["unit_number", "floor", "area_sqm", "rooms", "salutation", "first_name", "last_name", "cold_rent", "utility_advance"]:
+            if col_name not in df_editor_data.columns:
+                df_editor_data[col_name] = ""
+
+        edited_df = st.data_editor(
+            df_editor_data,
+            column_config={
+                "unit_number": st.column_config.TextColumn("Wohnung / Einheit *", required=True, width="medium"),
+                "floor": st.column_config.TextColumn("Etage / Lage", width="small"),
+                "area_sqm": st.column_config.NumberColumn("Wohnfläche (m²) *", min_value=1.0, max_value=3000.0, step=0.5, format="%.1f m²", required=True),
+                "rooms": st.column_config.NumberColumn("Zimmer", min_value=1, max_value=25, step=1, format="%d"),
+                "salutation": st.column_config.SelectboxColumn("Anrede", options=["Herr", "Frau"], width="small"),
+                "first_name": st.column_config.TextColumn("Mieter Vorname (opt.)", width="medium"),
+                "last_name": st.column_config.TextColumn("Mieter Nachname (opt.)", width="medium"),
+                "cold_rent": st.column_config.NumberColumn("Kaltmiete (€)", min_value=0.0, step=50.0, format="%.2f €"),
+                "utility_advance": st.column_config.NumberColumn("NK-Vorauszahlung (€)", min_value=0.0, step=10.0, format="%.2f €")
+            },
+            num_rows="dynamic",
+            use_container_width=True,
+            key="table_doc_import_editor"
+        )
+
+        calc_units_cnt = len(edited_df)
+        try:
+            calc_total_area = float(edited_df["area_sqm"].sum())
+        except Exception:
+            calc_total_area = 0.0
+
+        col_met1, col_met2, col_met3 = st.columns([1, 1, 2])
+        with col_met1:
+            st.metric("Erfasste Einheiten", calc_units_cnt)
+        with col_met2:
+            st.metric("Gesamtwohnfläche", f"{calc_total_area:,.1f} m²".replace(",", "."))
+
+        # Optional: Extrahierter Text zur Kontrolle
+        raw_t = st.session_state.get("doc_import_raw_text", "")
+        if raw_t:
+            with st.expander("Extrahierter Originaltext aus dem PDF (zur Einsicht)", expanded=False):
+                st.text_area("PDF-Rohtext", raw_t, height=180, disabled=True)
+
+        st.markdown("---")
+        col_btn_save, col_btn_cancel = st.columns([1.5, 1])
+        with col_btn_save:
+            save_import_btn = st.button("Liegenschaft & Einheiten jetzt speichern", icon=":material/save:", type="primary", use_container_width=True, key="btn_commit_doc_import")
+        with col_btn_cancel:
+            cancel_import_btn = st.button("Abbrechen & Verwerfen", icon=":material/close:", use_container_width=True, key="btn_abort_doc_import")
+
+        if save_import_btn:
+            if dest_mode == "Neue Liegenschaft anlegen":
+                if not prop_name_input.strip() or not prop_street_input.strip() or not prop_zip_input.strip() or not prop_city_input.strip():
+                    st.error("Bitte mindestens Name, Straße, PLZ und Ort der Liegenschaft angeben!")
+                    return
+            if edited_df.empty:
+                st.error("Bitte mindestens eine Wohneinheit in der Tabelle belassen oder hinzufügen!")
+                return
+
+            records = edited_df.to_dict(orient="records")
+            prop_payload = {
+                "name": prop_name_input.strip() if dest_mode == "Neue Liegenschaft anlegen" else "",
+                "alias": prop_alias_input.strip() if dest_mode == "Neue Liegenschaft anlegen" else "",
+                "street": prop_street_input.strip() if dest_mode == "Neue Liegenschaft anlegen" else "",
+                "zip_code": prop_zip_input.strip() if dest_mode == "Neue Liegenschaft anlegen" else "",
+                "city": prop_city_input.strip() if dest_mode == "Neue Liegenschaft anlegen" else "",
+                "total_area_sqm": calc_total_area
+            }
+
+            try:
+                saved_id = save_imported_property_data(
+                    prop_data=prop_payload,
+                    units=records,
+                    existing_property_id=selected_existing_prop_id
+                )
+                st.session_state["active_property_id"] = saved_id
+                st.session_state["doc_import_active"] = False
+                st.session_state["doc_import_parsed_data"] = None
+                st.session_state["doc_import_raw_text"] = None
+                st.session_state["doc_import_target_prop_id"] = None
+                st.success("Liegenschaft und Einheiten wurden erfolgreich gespeichert!")
+                st.rerun()
+            except Exception as e_save:
+                st.error(f"Fehler beim Speichern in die Datenbank: {e_save}")
+
+        if cancel_import_btn:
+            st.session_state["doc_import_active"] = False
+            st.session_state["doc_import_parsed_data"] = None
+            st.session_state["doc_import_raw_text"] = None
+            st.session_state["doc_import_target_prop_id"] = None
+            st.rerun()
+
 # Automatisch Einstellungen verlassen, wenn der Nutzer in der Sidebar navigiert
 if "last_sidebar_menu" not in st.session_state:
     st.session_state["last_sidebar_menu"] = menu
@@ -1229,9 +1457,11 @@ elif menu == "KI-Assistent & Schriftverkehr":
 # TAB 2: Liegenschaften & Mieter
 elif menu == "Liegenschaften & Mieter":
     active_property_id = st.session_state.get("active_property_id", None)
+    if st.session_state.get("doc_import_active", False):
+        render_document_import_view()
 
     # LEVEL 1: Übersicht aller Liegenschaften
-    if active_property_id is None:
+    elif active_property_id is None:
         col_hdr_main, col_hdr_gear = st.columns([0.84, 0.16])
         with col_hdr_gear:
             st.write("")
@@ -1261,39 +1491,47 @@ elif menu == "Liegenschaften & Mieter":
 
         st.markdown("---")
 
-        col_title, col_new_prop = st.columns([0.7, 0.3])
+        col_title, col_new_prop = st.columns([0.48, 0.52])
         with col_title:
             st.subheader("Verwaltete Liegenschaften")
         with col_new_prop:
-            with st.popover("Neue Liegenschaft anlegen", icon=":material/add_home_work:", use_container_width=True):
-                st.markdown("##### Neue Liegenschaft erfassen")
-                with st.form("form_add_property", clear_on_submit=True):
-                    np_name = st.text_input("Name der Liegenschaft *", placeholder="z. B. Wohnanlage Sonnenhang")
-                    np_alias = st.text_input("Optionaler Alias (Kurzname)", placeholder="z. B. Sonnenhang")
-                    np_street = st.text_input("Straße & Hausnummer *", placeholder="z. B. Lindenstraße 14")
-                    col_np_z, np_city_col = st.columns([1, 2])
-                    with col_np_z:
-                        np_zip = st.text_input("PLZ *", placeholder="10115")
-                    with np_city_col:
-                        np_city = st.text_input("Ort *", placeholder="Berlin")
-                    np_area = st.number_input("Gesamtwohnfläche (m²)", min_value=0.0, value=200.0, step=10.0)
-                    submit_new_prop = st.form_submit_button("Liegenschaft anlegen", icon=":material/save:", type="primary", use_container_width=True)
-                    if submit_new_prop:
-                        if not np_name.strip() or not np_street.strip() or not np_zip.strip() or not np_city.strip():
-                            st.error("Bitte mindestens Name, Straße, PLZ und Ort angeben!")
-                        else:
-                            new_p_id = add_property(
-                                name=np_name.strip(),
-                                alias=np_alias.strip() if np_alias.strip() else None,
-                                street=np_street.strip(),
-                                zip_code=np_zip.strip(),
-                                city=np_city.strip(),
-                                total_area_sqm=np_area
-                            )
-                            # Automatisch eine Standard-Wohneinheit anlegen
-                            add_unit(new_p_id, "Wohnung 1", np_area, "EG")
-                            st.success(f"Liegenschaft '{np_name}' erfolgreich angelegt!")
-                            st.rerun()
+            col_doc_btn, col_manual_btn = st.columns(2)
+            with col_doc_btn:
+                if st.button("Dokument hochladen", icon=":material/upload_file:", type="primary", use_container_width=True, help="Liegenschaft & Einheiten automatisch aus Zensus-Bogen oder Wohnungsliste erfassen"):
+                    st.session_state["doc_import_active"] = True
+                    st.session_state["doc_import_target_prop_id"] = None
+                    st.session_state["doc_import_parsed_data"] = None
+                    st.rerun()
+            with col_manual_btn:
+                with st.popover("Manuell anlegen", icon=":material/add_home_work:", use_container_width=True):
+                    st.markdown("##### Neue Liegenschaft erfassen")
+                    with st.form("form_add_property", clear_on_submit=True):
+                        np_name = st.text_input("Name der Liegenschaft *", placeholder="z. B. Wohnanlage Sonnenhang")
+                        np_alias = st.text_input("Optionaler Alias (Kurzname)", placeholder="z. B. Sonnenhang")
+                        np_street = st.text_input("Straße & Hausnummer *", placeholder="z. B. Lindenstraße 14")
+                        col_np_z, np_city_col = st.columns([1, 2])
+                        with col_np_z:
+                            np_zip = st.text_input("PLZ *", placeholder="10115")
+                        with np_city_col:
+                            np_city = st.text_input("Ort *", placeholder="Berlin")
+                        np_area = st.number_input("Gesamtwohnfläche (m²)", min_value=0.0, value=200.0, step=10.0)
+                        submit_new_prop = st.form_submit_button("Liegenschaft anlegen", icon=":material/save:", type="primary", use_container_width=True)
+                        if submit_new_prop:
+                            if not np_name.strip() or not np_street.strip() or not np_zip.strip() or not np_city.strip():
+                                st.error("Bitte mindestens Name, Straße, PLZ und Ort angeben!")
+                            else:
+                                new_p_id = add_property(
+                                    name=np_name.strip(),
+                                    alias=np_alias.strip() if np_alias.strip() else None,
+                                    street=np_street.strip(),
+                                    zip_code=np_zip.strip(),
+                                    city=np_city.strip(),
+                                    total_area_sqm=np_area
+                                )
+                                # Automatisch eine Standard-Wohneinheit anlegen
+                                add_unit(new_p_id, "Wohnung 1", np_area, "EG")
+                                st.success(f"Liegenschaft '{np_name}' erfolgreich angelegt!")
+                                st.rerun()
 
         if not properties:
             st.info("Aktuell sind noch keine Liegenschaften erfasst. Lege jetzt die erste Liegenschaft an.")
@@ -1534,20 +1772,28 @@ elif menu == "Liegenschaften & Mieter":
             else:
                 st.info("Noch keine separaten Einheiten angelegt.")
 
-            with st.popover("Neue Wohneinheit hinzufügen", icon=":material/add:", use_container_width=True):
-                st.markdown("##### Neue Wohneinheit anlegen")
-                with st.form("form_add_unit_to_prop", clear_on_submit=True):
-                    u_num = st.text_input("Bezeichnung / Nummer *", placeholder="z. B. Wohnung 4 (2. OG)")
-                    u_floor = st.text_input("Etage", value="1. OG")
-                    u_area = st.number_input("Wohnfläche (m²) *", min_value=10.0, value=75.0, step=5.0)
-                    submit_unit = st.form_submit_button("Einheit anlegen", icon=":material/save:", type="primary", use_container_width=True)
-                    if submit_unit:
-                        if not u_num.strip():
-                            st.error("Bitte Bezeichnung angeben!")
-                        else:
-                            add_unit(active_property_id, u_num.strip(), u_area, u_floor)
-                            st.success(f"Wohneinheit '{u_num}' angelegt!")
-                            st.rerun()
+            col_u_doc, col_u_man = st.columns(2)
+            with col_u_doc:
+                if st.button("Einheiten aus Dokument importieren", icon=":material/upload_file:", type="primary", use_container_width=True, help="Wohneinheiten aus Zensus-Bogen oder Liste direkt in diese Liegenschaft importieren"):
+                    st.session_state["doc_import_active"] = True
+                    st.session_state["doc_import_target_prop_id"] = active_property_id
+                    st.session_state["doc_import_parsed_data"] = None
+                    st.rerun()
+            with col_u_man:
+                with st.popover("Neue Wohneinheit manuell hinzufügen", icon=":material/add:", use_container_width=True):
+                    st.markdown("##### Neue Wohneinheit anlegen")
+                    with st.form("form_add_unit_to_prop", clear_on_submit=True):
+                        u_num = st.text_input("Bezeichnung / Nummer *", placeholder="z. B. Wohnung 4 (2. OG)")
+                        u_floor = st.text_input("Etage", value="1. OG")
+                        u_area = st.number_input("Wohnfläche (m²) *", min_value=10.0, value=75.0, step=5.0)
+                        submit_unit = st.form_submit_button("Einheit anlegen", icon=":material/save:", type="primary", use_container_width=True)
+                        if submit_unit:
+                            if not u_num.strip():
+                                st.error("Bitte Bezeichnung angeben!")
+                            else:
+                                add_unit(active_property_id, u_num.strip(), u_area, u_floor)
+                                st.success(f"Wohneinheit '{u_num}' angelegt!")
+                                st.rerun()
 
         with tab_prop_settings:
             st.subheader("Liegenschaftsdaten & Alias")

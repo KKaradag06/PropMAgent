@@ -4,3 +4,4 @@ reportlab
 python-docx
 ollama
 python-dotenv
+pypdf

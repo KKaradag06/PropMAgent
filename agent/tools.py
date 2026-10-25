@@ -110,6 +110,101 @@ def add_unit(property_id: int, unit_number: str, area_sqm: float, floor: str = "
         VALUES (?, ?, ?, ?);
     """, (property_id, unit_number.strip(), float(area_sqm), floor.strip()))
 
+def save_imported_property_data(
+    prop_data: Dict[str, Any],
+    units: List[Dict[str, Any]],
+    existing_property_id: Optional[int] = None
+) -> int:
+    """Speichert oder aktualisiert eine Liegenschaft samt Wohneinheiten und ggf. Mietern aus einem Dokument-Import."""
+    import pandas as pd
+    from database.db import execute_db, query_db
+
+    if existing_property_id:
+        prop_id = existing_property_id
+        if prop_data.get("total_area_sqm"):
+            execute_db("UPDATE properties SET total_area_sqm = ? WHERE id = ?;", (float(prop_data["total_area_sqm"]), prop_id))
+    else:
+        name = (prop_data.get("name") or prop_data.get("property_name") or "Neue Liegenschaft").strip()
+        alias = (prop_data.get("alias") or "").strip() or None
+        street = (prop_data.get("street") or "Musterstraße 1").strip()
+        zip_code = (prop_data.get("zip_code") or "10115").strip()
+        city = (prop_data.get("city") or "Berlin").strip()
+        total_area = float(prop_data.get("total_area_sqm") or 0.0)
+
+        prop_id = add_property(
+            name=name,
+            alias=alias,
+            street=street,
+            zip_code=zip_code,
+            city=city,
+            total_area_sqm=total_area
+        )
+
+    for u in units:
+        raw_num = u.get("unit_number")
+        if pd.isna(raw_num):
+            continue
+        u_num = str(raw_num).strip()
+        if not u_num or u_num.lower() == "nan":
+            continue
+
+        raw_area = u.get("area_sqm")
+        if pd.isna(raw_area):
+            area = 50.0
+        else:
+            try:
+                area = float(str(raw_area).replace(",", "."))
+            except (ValueError, TypeError):
+                area = 50.0
+
+        raw_floor = u.get("floor")
+        floor = "EG" if pd.isna(raw_floor) else str(raw_floor).strip()
+        if not floor or floor.lower() == "nan":
+            floor = "EG"
+
+        # Prüfen ob Einheit schon existiert
+        existing = query_db("SELECT id FROM units WHERE property_id = ? AND LOWER(unit_number) = LOWER(?);", (prop_id, u_num))
+        if existing:
+            unit_id = existing[0]["id"]
+            execute_db("UPDATE units SET area_sqm = ?, floor = ? WHERE id = ?;", (area, floor, unit_id))
+        else:
+            unit_id = add_unit(prop_id, u_num, area, floor)
+
+        # Mieter anlegen falls Vor- oder Nachname angegeben ist
+        raw_fn = u.get("first_name")
+        raw_ln = u.get("last_name")
+        fn = "" if pd.isna(raw_fn) else str(raw_fn).strip()
+        ln = "" if pd.isna(raw_ln) else str(raw_ln).strip()
+        if fn.lower() == "nan": fn = ""
+        if ln.lower() == "nan": ln = ""
+
+        if fn or ln:
+            raw_sal = u.get("salutation")
+            sal = "Herr" if pd.isna(raw_sal) else str(raw_sal).strip()
+            if sal not in ["Herr", "Frau"]:
+                sal = "Frau" if any(x in fn.lower() for x in ["anna", "maria", "sabine", "laura", "julia"]) else "Herr"
+
+            try:
+                raw_cr = u.get("cold_rent")
+                cr = 0.0 if pd.isna(raw_cr) else float(str(raw_cr).replace(",", "."))
+            except (ValueError, TypeError):
+                cr = 0.0
+
+            try:
+                raw_nk = u.get("utility_advance")
+                nk = 0.0 if pd.isna(raw_nk) else float(str(raw_nk).replace(",", "."))
+            except (ValueError, TypeError):
+                nk = 0.0
+
+            active_t = query_db("SELECT id FROM tenants WHERE unit_id = ? AND is_active = 1;", (unit_id,))
+            if not active_t:
+                execute_db("""
+                    INSERT INTO tenants (unit_id, salutation, first_name, last_name, email, phone, lease_start, cold_rent, utility_advance, is_active)
+                    VALUES (?, ?, ?, ?, '', '', date('now'), ?, ?, 1);
+                """, (unit_id, sal, fn or "Mieter", ln or "Unbekannt", cr, nk))
+
+    return prop_id
+
 def add_new_tenant(
     first_name: str,
     last_name: str,
