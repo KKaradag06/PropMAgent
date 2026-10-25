@@ -20,17 +20,34 @@ def init_db() -> None:
         schema = f.read()
     with get_connection() as conn:
         conn.executescript(schema)
-        # Migration: salutation Spalte sicherstellen
-        columns = [row[1] for row in conn.execute("PRAGMA table_info(tenants);").fetchall()]
-        if "salutation" not in columns:
+        # Migration: tenants Spalten sicherstellen
+        columns_tenants = [row[1] for row in conn.execute("PRAGMA table_info(tenants);").fetchall()]
+        if "salutation" not in columns_tenants:
             conn.execute("ALTER TABLE tenants ADD COLUMN salutation TEXT DEFAULT 'Herr';")
+        if "co_tenants" not in columns_tenants:
+            conn.execute("ALTER TABLE tenants ADD COLUMN co_tenants TEXT DEFAULT '[]';")
+
         # Automatisch korrigieren falls Laura Schmidt noch Herr hat
         conn.execute("UPDATE tenants SET salutation = 'Frau' WHERE first_name = 'Laura' OR last_name = 'Schmidt';")
 
-        # Migration: alias Spalte in properties sicherstellen
+        # Migration: properties Spalten sicherstellen
         columns_props = [row[1] for row in conn.execute("PRAGMA table_info(properties);").fetchall()]
         if "alias" not in columns_props:
             conn.execute("ALTER TABLE properties ADD COLUMN alias TEXT;")
+        if "construction_year" not in columns_props:
+            conn.execute("ALTER TABLE properties ADD COLUMN construction_year TEXT;")
+        if "heating_type" not in columns_props:
+            conn.execute("ALTER TABLE properties ADD COLUMN heating_type TEXT;")
+        if "energy_source" not in columns_props:
+            conn.execute("ALTER TABLE properties ADD COLUMN energy_source TEXT;")
+
+        # Migration: units Spalten sicherstellen
+        columns_units = [row[1] for row in conn.execute("PRAGMA table_info(units);").fetchall()]
+        if "rooms" not in columns_units:
+            conn.execute("ALTER TABLE units ADD COLUMN rooms REAL DEFAULT 2;")
+        if "person_count" not in columns_units:
+            conn.execute("ALTER TABLE units ADD COLUMN person_count INTEGER DEFAULT 1;")
+
         conn.commit()
     from database.settings import init_settings
     init_settings()

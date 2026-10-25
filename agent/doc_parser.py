@@ -96,6 +96,42 @@ def heuristic_extract_property_data(text: str) -> Dict[str, Any]:
         except ValueError:
             pass
 
+    # Baujahr
+    by_match = re.search(r"(?:Baujahr|Baualtersklasse|Errichtungsjahr)[\s:]*(\d{4})", text, re.IGNORECASE)
+    result["construction_year"] = by_match.group(1).strip() if by_match else ""
+
+    # Heizungsart
+    heat_match = re.search(r"(?:Heizart|Heizungsart|Beheizung)[\s:]*([^\n,;]+)", text, re.IGNORECASE)
+    if heat_match:
+        result["heating_type"] = heat_match.group(1).strip()
+    elif re.search(r"\bZentralheizung\b", text, re.IGNORECASE):
+        result["heating_type"] = "Zentralheizung"
+    elif re.search(r"\bEtagenheizung\b", text, re.IGNORECASE):
+        result["heating_type"] = "Etagenheizung"
+    elif re.search(r"\bFernwärme\b", text, re.IGNORECASE):
+        result["heating_type"] = "Fernwärme"
+    elif re.search(r"\bWärmepumpe\b", text, re.IGNORECASE):
+        result["heating_type"] = "Wärmepumpe"
+    else:
+        result["heating_type"] = ""
+
+    # Energieträger
+    energy_match = re.search(r"(?:Energieträger|Brennstoff)[\s:]*([^\n,;]+)", text, re.IGNORECASE)
+    if energy_match:
+        result["energy_source"] = energy_match.group(1).strip()
+    elif re.search(r"\b(Gas|Erdgas)\b", text, re.IGNORECASE):
+        result["energy_source"] = "Erdgas"
+    elif re.search(r"\b(Öl|Heizöl)\b", text, re.IGNORECASE):
+        result["energy_source"] = "Heizöl"
+    elif re.search(r"\bFernwärme\b", text, re.IGNORECASE):
+        result["energy_source"] = "Fernwärme"
+    elif re.search(r"\b(Strom|Wärmepumpe|Umweltwärme)\b", text, re.IGNORECASE):
+        result["energy_source"] = "Strom / Umweltwärme"
+    elif re.search(r"\b(Pellets|Holz)\b", text, re.IGNORECASE):
+        result["energy_source"] = "Holzpellets"
+    else:
+        result["energy_source"] = ""
+
     # 4. Einzelne Wohnungen erkennen
     # Block-basierte Suche: "Wohnung 1", "WE 01", "Wohnung 2" etc.
     unit_blocks = re.split(r"(?=(?:Wohnung|Wohneinheit|WE\s*\d+|Einheit)\s*\d+)", text, flags=re.IGNORECASE)
@@ -137,6 +173,15 @@ def heuristic_extract_property_data(text: str) -> Dict[str, Any]:
             except ValueError:
                 pass
 
+        # Personenanzahl
+        person_count = 1
+        pers_m = re.search(r"(\d+)\s*(?:Personen|Pers\.|Bewohner)", block, re.IGNORECASE)
+        if pers_m:
+            try:
+                person_count = int(pers_m.group(1))
+            except ValueError:
+                pass
+
         # Mietername falls vorhanden
         tenant_sal = "Herr"
         first_name = ""
@@ -171,9 +216,11 @@ def heuristic_extract_property_data(text: str) -> Dict[str, Any]:
             "floor": floor,
             "area_sqm": area,
             "rooms": rooms,
+            "person_count": person_count,
             "salutation": tenant_sal,
             "first_name": first_name,
             "last_name": last_name,
+            "co_tenants": "",
             "cold_rent": cold_rent,
             "utility_advance": utility_adv
         })
@@ -194,7 +241,7 @@ def parse_property_document(text: str, model: Optional[str] = None) -> Dict[str,
 
     prompt = f"""Du bist ein KI-Assistent für deutsche Immobilienverwaltung.
 Analysiere den folgenden Dokumenttext (z. B. Zensus 2022 Gebäude- und Wohnungszählung, Teilungserklärung, Mietverträge oder Wohnungsliste).
-Extrahiere alle Angaben zur Liegenschaft (Adresse, Gesamtfläche, Wohnungsanzahl) sowie die einzelnen Wohneinheiten (Wohnungsnummer/Bezeichnung, Etage/Lage, Wohnfläche in m², Zimmeranzahl, Mietername falls genannt).
+Extrahiere alle Angaben zur Liegenschaft (Adresse, Gesamtfläche, Wohnungsanzahl, Baujahr, Heizungsart, Energieträger) sowie die einzelnen Wohneinheiten (Wohnungsnummer/Bezeichnung, Etage/Lage, Wohnfläche in m², Zimmeranzahl, Personenanzahl, Mietername und evtl. Mitmieter).
 
 Antworte AUSSCHLIESSLICH mit einem validen JSON-Objekt ohne Erklärungen oder Markdown-Fences nach diesem Schema:
 {{
@@ -203,6 +250,9 @@ Antworte AUSSCHLIESSLICH mit einem validen JSON-Objekt ohne Erklärungen oder Ma
   "street": "Straße und Hausnummer (z. B. Friedrichstraße 42)",
   "zip_code": "5-stellige PLZ (z. B. 10117)",
   "city": "Ort / Stadt (z. B. Berlin)",
+  "construction_year": "1998 (oder leer falls unbekannt)",
+  "heating_type": "Zentralheizung / Etagenheizung / Wärmepumpe / Fernwärme (oder leer)",
+  "energy_source": "Erdgas / Heizöl / Strom / Fernwärme / Holzpellets (oder leer)",
   "total_area_sqm": 215.0,
   "unit_count": 3,
   "document_type": "Zensus 2022 / Gebäude- & Wohnungszählung",
@@ -212,9 +262,11 @@ Antworte AUSSCHLIESSLICH mit einem validen JSON-Objekt ohne Erklärungen oder Ma
       "floor": "EG links",
       "area_sqm": 68.5,
       "rooms": 3,
+      "person_count": 2,
       "salutation": "Herr oder Frau (falls vorhanden)",
       "first_name": "Vorname (falls im Text vorhanden, sonst leer)",
       "last_name": "Nachname (falls im Text vorhanden, sonst leer)",
+      "co_tenants": "Weitere Personen/Mitmieter (z. B. Laura Schmidt oder leer)",
       "cold_rent": 0.0,
       "utility_advance": 0.0
     }}
@@ -255,8 +307,8 @@ Dokumenttext:
         parsed_result["extracted_by"] = "heuristic"
     else:
         parsed_result["extracted_by"] = "ollama"
-        # Fehlende Adressfelder aus Heuristik ergänzen falls Ollama etwas übersehen hat
-        for field in ["street", "zip_code", "city", "property_name", "alias"]:
+        # Fehlende Liegenschaftsfelder aus Heuristik ergänzen falls Ollama etwas übersehen hat
+        for field in ["street", "zip_code", "city", "property_name", "alias", "construction_year", "heating_type", "energy_source"]:
             if not parsed_result.get(field) and heuristic_data.get(field):
                 parsed_result[field] = heuristic_data[field]
 
@@ -279,10 +331,21 @@ Dokumenttext:
         except (ValueError, TypeError):
             nk = 0.0
 
+        try:
+            rooms_val = float(str(u.get("rooms", 2.0)).replace(",", "."))
+        except Exception:
+            rooms_val = 2.0
+
+        try:
+            pers_val = int(u.get("person_count", 1) or 1)
+        except Exception:
+            pers_val = 1
+
         u_num = str(u.get("unit_number") or f"Wohnung {idx}").strip()
         floor = str(u.get("floor") or "EG").strip()
         first_name = str(u.get("first_name") or "").strip()
         last_name = str(u.get("last_name") or "").strip()
+        co_tenants_raw = u.get("co_tenants") or ""
         sal = str(u.get("salutation") or "Herr").strip()
         if sal not in ["Herr", "Frau"]:
             sal = "Frau" if any(fn in first_name.lower() for fn in ["anna", "maria", "sabine", "laura", "julia"]) else "Herr"
@@ -291,10 +354,12 @@ Dokumenttext:
             "unit_number": u_num,
             "floor": floor,
             "area_sqm": round(area, 2),
-            "rooms": int(u.get("rooms") or 2),
+            "rooms": rooms_val,
+            "person_count": pers_val,
             "salutation": sal,
             "first_name": first_name,
             "last_name": last_name,
+            "co_tenants": co_tenants_raw,
             "cold_rent": round(cr, 2),
             "utility_advance": round(nk, 2)
         })

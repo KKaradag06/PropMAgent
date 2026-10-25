@@ -17,6 +17,8 @@ from agent.tools import (
     get_tenants_by_property,
     get_units_by_property,
     add_unit,
+    update_unit,
+    parse_co_tenants,
     save_imported_property_data,
     add_new_tenant,
     update_tenant,
@@ -798,6 +800,21 @@ def render_document_import_view():
             with col_c:
                 def_city = parsed_data.get("city") or ""
                 prop_city_input = st.text_input("Ort *", value=def_city, key="import_p_city", placeholder="Berlin")
+
+            col_by, col_ht, col_es = st.columns(3)
+            with col_by:
+                def_by = parsed_data.get("construction_year") or ""
+                prop_by_input = st.text_input("Baujahr (optional)", value=str(def_by), key="import_p_by", placeholder="z. B. 1998")
+            with col_ht:
+                def_ht = parsed_data.get("heating_type") or ""
+                ht_options = ["", "Zentralheizung", "Etagenheizung", "Fernwärme", "Wärmepumpe", "Einzelöfen", "Sonstige"]
+                ht_idx = ht_options.index(def_ht) if def_ht in ht_options else (len(ht_options) - 1 if def_ht else 0)
+                prop_ht_input = st.selectbox("Heizungsart (optional)", ht_options, index=ht_idx, key="import_p_ht")
+            with col_es:
+                def_es = parsed_data.get("energy_source") or ""
+                es_options = ["", "Erdgas", "Heizöl", "Fernwärme", "Strom / Umweltwärme", "Holzpellets", "Sonstige"]
+                es_idx = es_options.index(def_es) if def_es in es_options else (len(es_options) - 1 if def_es else 0)
+                prop_es_input = st.selectbox("Energieträger (optional)", es_options, index=es_idx, key="import_p_es")
         else:
             prop_map = {f"{p['name']} ({p['street']}, {p['zip_code']} {p['city']})": p["property_id"] for p in existing_props}
             default_p_idx = 0
@@ -813,6 +830,9 @@ def render_document_import_view():
             prop_street_input = ""
             prop_zip_input = ""
             prop_city_input = ""
+            prop_by_input = ""
+            prop_ht_input = ""
+            prop_es_input = ""
 
         st.markdown("##### 2. Erkannte Wohneinheiten & Mieter")
         st.caption("Passe Werte direkt in der Tabelle an. Du kannst Zeilen bearbeiten, löschen oder über das '+' am Tabellenende neue hinzufügen.")
@@ -823,18 +843,20 @@ def render_document_import_view():
                 "unit_number": "Wohnung 1",
                 "floor": "EG",
                 "area_sqm": 65.0,
-                "rooms": 2,
+                "rooms": 2.0,
+                "person_count": 1,
                 "salutation": "Herr",
                 "first_name": "",
                 "last_name": "",
+                "co_tenants": "",
                 "cold_rent": 0.0,
                 "utility_advance": 0.0
             }]
 
         df_editor_data = pd.DataFrame(units_list)
-        for col_name in ["unit_number", "floor", "area_sqm", "rooms", "salutation", "first_name", "last_name", "cold_rent", "utility_advance"]:
+        for col_name in ["unit_number", "floor", "area_sqm", "rooms", "person_count", "salutation", "first_name", "last_name", "co_tenants", "cold_rent", "utility_advance"]:
             if col_name not in df_editor_data.columns:
-                df_editor_data[col_name] = ""
+                df_editor_data[col_name] = 1 if col_name == "person_count" else (2.0 if col_name == "rooms" else "")
 
         edited_df = st.data_editor(
             df_editor_data,
@@ -842,10 +864,12 @@ def render_document_import_view():
                 "unit_number": st.column_config.TextColumn("Wohnung / Einheit *", required=True, width="medium"),
                 "floor": st.column_config.TextColumn("Etage / Lage", width="small"),
                 "area_sqm": st.column_config.NumberColumn("Wohnfläche (m²) *", min_value=1.0, max_value=3000.0, step=0.5, format="%.1f m²", required=True),
-                "rooms": st.column_config.NumberColumn("Zimmer", min_value=1, max_value=25, step=1, format="%d"),
+                "rooms": st.column_config.NumberColumn("Zimmer", min_value=1.0, max_value=25.0, step=0.5, format="%.1f"),
+                "person_count": st.column_config.NumberColumn("Personen (Anzahl)", min_value=1, max_value=20, step=1, format="%d"),
                 "salutation": st.column_config.SelectboxColumn("Anrede", options=["Herr", "Frau"], width="small"),
                 "first_name": st.column_config.TextColumn("Mieter Vorname (opt.)", width="medium"),
                 "last_name": st.column_config.TextColumn("Mieter Nachname (opt.)", width="medium"),
+                "co_tenants": st.column_config.TextColumn("Weitere Mieter / Mitmieter (opt.)", width="large", help="z. B. Laura Schmidt (falls Mietvertrag auf mehrere Personen)"),
                 "cold_rent": st.column_config.NumberColumn("Kaltmiete (€)", min_value=0.0, step=50.0, format="%.2f €"),
                 "utility_advance": st.column_config.NumberColumn("NK-Vorauszahlung (€)", min_value=0.0, step=10.0, format="%.2f €")
             },
@@ -895,7 +919,10 @@ def render_document_import_view():
                 "street": prop_street_input.strip() if dest_mode == "Neue Liegenschaft anlegen" else "",
                 "zip_code": prop_zip_input.strip() if dest_mode == "Neue Liegenschaft anlegen" else "",
                 "city": prop_city_input.strip() if dest_mode == "Neue Liegenschaft anlegen" else "",
-                "total_area_sqm": calc_total_area
+                "total_area_sqm": calc_total_area,
+                "construction_year": prop_by_input.strip() if dest_mode == "Neue Liegenschaft anlegen" else "",
+                "heating_type": prop_ht_input.strip() if dest_mode == "Neue Liegenschaft anlegen" else "",
+                "energy_source": prop_es_input.strip() if dest_mode == "Neue Liegenschaft anlegen" else ""
             }
 
             try:
@@ -1515,6 +1542,12 @@ elif menu == "Liegenschaften & Mieter":
                         with np_city_col:
                             np_city = st.text_input("Ort *", placeholder="Berlin")
                         np_area = st.number_input("Gesamtwohnfläche (m²)", min_value=0.0, value=200.0, step=10.0)
+                        np_by = st.text_input("Baujahr (optional)", placeholder="z. B. 1995")
+                        col_np_h1, col_np_h2 = st.columns(2)
+                        with col_np_h1:
+                            np_heat = st.selectbox("Heizungsart (optional)", ["", "Zentralheizung", "Etagenheizung", "Fernwärme", "Wärmepumpe", "Einzelöfen", "Sonstige"])
+                        with col_np_h2:
+                            np_energy = st.selectbox("Energieträger (optional)", ["", "Erdgas", "Heizöl", "Fernwärme", "Strom / Wärmepumpe", "Holzpellets", "Sonstige"])
                         submit_new_prop = st.form_submit_button("Liegenschaft anlegen", icon=":material/save:", type="primary", use_container_width=True)
                         if submit_new_prop:
                             if not np_name.strip() or not np_street.strip() or not np_zip.strip() or not np_city.strip():
@@ -1526,10 +1559,13 @@ elif menu == "Liegenschaften & Mieter":
                                     street=np_street.strip(),
                                     zip_code=np_zip.strip(),
                                     city=np_city.strip(),
-                                    total_area_sqm=np_area
+                                    total_area_sqm=np_area,
+                                    construction_year=np_by.strip() or None,
+                                    heating_type=np_heat.strip() or None,
+                                    energy_source=np_energy.strip() or None
                                 )
                                 # Automatisch eine Standard-Wohneinheit anlegen
-                                add_unit(new_p_id, "Wohnung 1", np_area, "EG")
+                                add_unit(new_p_id, "Wohnung 1", np_area, "EG", rooms=2.0, person_count=1)
                                 st.success(f"Liegenschaft '{np_name}' erfolgreich angelegt!")
                                 st.rerun()
 
@@ -1542,7 +1578,16 @@ elif menu == "Liegenschaften & Mieter":
                     with col_info:
                         alias_part = f" · Alias: **{p['alias']}**" if p.get("alias") else ""
                         st.markdown(f"#### {p['name']}{alias_part}")
-                        st.caption(f":material/location_on: {p['street']}, {p['zip_code']} {p['city']}")
+                        meta_details = []
+                        if p.get("construction_year"):
+                            meta_details.append(f"Baujahr: {p['construction_year']}")
+                        if p.get("heating_type"):
+                            ht_str = p['heating_type']
+                            if p.get("energy_source"):
+                                ht_str += f" ({p['energy_source']})"
+                            meta_details.append(ht_str)
+                        meta_str = (" · " + " · ".join(meta_details)) if meta_details else ""
+                        st.caption(f":material/location_on: {p['street']}, {p['zip_code']} {p['city']}{meta_str}")
                     with col_metrics:
                         st.markdown(f"**Mieter:** {p['tenant_count']} &nbsp;|&nbsp; **Einheiten:** {p['unit_count']}")
                         st.caption(f"Gesamtfläche: {float(p.get('total_area_sqm') or 0.0):.1f} m²")
@@ -1583,7 +1628,16 @@ elif menu == "Liegenschaften & Mieter":
 
         alias_display = f" · Alias: {prop['alias']}" if prop.get("alias") else ""
         st.header(f"{prop['name']}{alias_display}")
-        st.caption(f":material/location_on: {prop['street']}, {prop['zip_code']} {prop['city']} · Gesamtfläche: {prop['total_area_sqm']:.1f} m² · Einheiten: {prop['unit_count']} · Mieter: {prop['tenant_count']}")
+        meta_details = []
+        if prop.get("construction_year"):
+            meta_details.append(f"Baujahr: {prop['construction_year']}")
+        if prop.get("heating_type"):
+            ht_str = f"Heizung: {prop['heating_type']}"
+            if prop.get("energy_source"):
+                ht_str += f" ({prop['energy_source']})"
+            meta_details.append(ht_str)
+        meta_str = (" · " + " · ".join(meta_details)) if meta_details else ""
+        st.caption(f":material/location_on: {prop['street']}, {prop['zip_code']} {prop['city']} · Gesamtfläche: {prop['total_area_sqm']:.1f} m² · Einheiten: {prop['unit_count']} · Mieter: {prop['tenant_count']}{meta_str}")
 
         prop_tenants = get_tenants_by_property(active_property_id)
         prop_units = get_units_by_property(active_property_id)
@@ -1599,6 +1653,7 @@ elif menu == "Liegenschaften & Mieter":
         with tab_tenants:
             if prop_tenants:
                 df = pd.DataFrame(prop_tenants)
+                df["Mieter / Vertragspartner"] = [t.get("display_name") or f"{t.get('first_name', '')} {t.get('last_name', '')}" for t in prop_tenants]
                 df_display = df.rename(columns={
                     "tenant_id": "ID",
                     "salutation": "Anrede",
@@ -1614,7 +1669,7 @@ elif menu == "Liegenschaften & Mieter":
                     "lease_start": "Mietbeginn",
                     "lease_end": "Mietende"
                 })
-                cols_to_show = [c for c in ["ID", "Anrede", "Vorname", "Nachname", "Wohneinheit", "Fläche (m²)", "Kaltmiete (€)", "Miete / m² (€)", "NK-Vorauszahlung (€)", "Mietbeginn", "Telefon", "E-Mail"] if c in df_display.columns]
+                cols_to_show = [c for c in ["ID", "Anrede", "Mieter / Vertragspartner", "Wohneinheit", "Fläche (m²)", "Kaltmiete (€)", "Miete / m² (€)", "NK-Vorauszahlung (€)", "Mietbeginn", "Telefon", "E-Mail"] if c in df_display.columns]
                 st.dataframe(df_display[cols_to_show], use_container_width=True, hide_index=True)
             else:
                 st.info("In dieser Liegenschaft sind aktuell keine Mieter erfasst. Nutze den Reiter 'Neuen Mieter anlegen', um einen Mieter hinzuzufügen.")
@@ -1654,11 +1709,30 @@ elif menu == "Liegenschaften & Mieter":
                 with col_ph:
                     new_ph = st.text_input("Telefonnummer (optional)", placeholder="+49 170 1234567")
 
+                st.markdown("##### 👥 Weitere Personen auf dem Mietvertrag (Gemeinschaftlicher Mietvertrag)")
+                st.caption("Optional: Trage hier einen zweiten Mieter/Vertragspartner ein (z. B. Ehepartner oder Mitbewohner).")
+                col_co_sal, col_co_fn, col_co_ln = st.columns([1, 2, 2])
+                with col_co_sal:
+                    new_co_sal = st.selectbox("Anrede (2. Mieter)", ["Frau", "Herr"], key="new_add_co_sal")
+                with col_co_fn:
+                    new_co_fn = st.text_input("Vorname (2. Mieter)", key="new_add_co_fn", placeholder="z. B. Laura")
+                with col_co_ln:
+                    new_co_ln = st.text_input("Nachname (2. Mieter)", key="new_add_co_ln", placeholder="z. B. Schmidt")
+
                 submitted = st.form_submit_button("Mieter speichern", icon=":material/save:", type="primary", use_container_width=True)
                 if submitted:
                     if not new_fn.strip() or not new_ln.strip():
                         st.error("Bitte mindestens Vorname und Nachname ausfüllen!")
                     else:
+                        co_list = []
+                        if new_co_fn.strip() or new_co_ln.strip():
+                            co_list.append({
+                                "salutation": new_co_sal,
+                                "first_name": new_co_fn.strip(),
+                                "last_name": new_co_ln.strip(),
+                                "email": "",
+                                "phone": ""
+                            })
                         add_new_tenant(
                             first_name=new_fn.strip(),
                             last_name=new_ln.strip(),
@@ -1669,7 +1743,8 @@ elif menu == "Liegenschaften & Mieter":
                             lease_start=str(new_start),
                             lease_end=new_end.strip() or None,
                             email=new_em,
-                            phone=new_ph
+                            phone=new_ph,
+                            co_tenants=co_list
                         )
                         st.success(f"Mieter {new_sal} {new_fn} {new_ln} wurde erfolgreich angelegt!")
                         st.rerun()
@@ -1677,7 +1752,7 @@ elif menu == "Liegenschaften & Mieter":
         with tab_edit_t:
             st.subheader("Mieter bearbeiten & löschen")
             if prop_tenants:
-                tenant_dict = {f"{t.get('salutation', 'Herr')} {t['first_name']} {t['last_name']} (ID {t['tenant_id']} · {t['unit_number']})": t for t in prop_tenants}
+                tenant_dict = {f"{t.get('salutation', 'Herr')} {t['display_name']} (ID {t['tenant_id']} · {t['unit_number']})": t for t in prop_tenants}
                 selected_label = st.selectbox("Wähle einen Mieter zum Bearbeiten", list(tenant_dict.keys()), key="edit_prop_select_tenant")
                 t_data = tenant_dict[selected_label]
 
@@ -1724,6 +1799,20 @@ elif menu == "Liegenschaften & Mieter":
                     with col_e_ph:
                         edit_ph = st.text_input("Telefonnummer", value=str(t_data.get("phone") or ""))
 
+                    existing_co = parse_co_tenants(t_data.get("co_tenants"))
+                    co1 = existing_co[0] if existing_co else {}
+                    st.markdown("##### 👥 Weitere Personen auf dem Mietvertrag (Gemeinschaftlicher Mietvertrag)")
+                    st.caption("Optional: Bearbeite hier den zweiten Mieter/Vertragspartner.")
+                    col_eco_sal, col_eco_fn, col_eco_ln = st.columns([1, 2, 2])
+                    with col_eco_sal:
+                        co_cur_sal = co1.get("salutation", "Frau")
+                        co_sal_idx = 1 if co_cur_sal == "Herr" else 0
+                        edit_co_sal = st.selectbox("Anrede (2. Mieter)", ["Frau", "Herr"], index=co_sal_idx, key=f"edit_co_sal_{t_data['tenant_id']}")
+                    with col_eco_fn:
+                        edit_co_fn = st.text_input("Vorname (2. Mieter)", value=co1.get("first_name", ""), key=f"edit_co_fn_{t_data['tenant_id']}", placeholder="z. B. Laura")
+                    with col_eco_ln:
+                        edit_co_ln = st.text_input("Nachname (2. Mieter)", value=co1.get("last_name", ""), key=f"edit_co_ln_{t_data['tenant_id']}", placeholder="z. B. Schmidt")
+
                     col_save, col_del = st.columns([3, 1])
                     with col_save:
                         save_clicked = st.form_submit_button("Änderungen speichern", icon=":material/save:", type="primary", use_container_width=True)
@@ -1734,6 +1823,15 @@ elif menu == "Liegenschaften & Mieter":
                         if not edit_fn.strip() or not edit_ln.strip():
                             st.error("Vorname und Nachname sind Pflichtfelder!")
                         else:
+                            upd_co_list = []
+                            if edit_co_fn.strip() or edit_co_ln.strip():
+                                upd_co_list.append({
+                                    "salutation": edit_co_sal,
+                                    "first_name": edit_co_fn.strip(),
+                                    "last_name": edit_co_ln.strip(),
+                                    "email": "",
+                                    "phone": ""
+                                })
                             update_tenant(
                                 tenant_id=t_data["tenant_id"],
                                 first_name=edit_fn.strip(),
@@ -1746,7 +1844,8 @@ elif menu == "Liegenschaften & Mieter":
                                 lease_end=edit_end.strip() or None,
                                 email=edit_em.strip(),
                                 phone=edit_ph.strip(),
-                                is_active=1
+                                is_active=1,
+                                co_tenants=upd_co_list
                             )
                             st.success(f"Daten von {edit_sal} {edit_fn} {edit_ln} wurden erfolgreich aktualisiert!")
                             st.rerun()
@@ -1765,9 +1864,11 @@ elif menu == "Liegenschaften & Mieter":
                     "unit_id": "Einheiten-ID",
                     "unit_number": "Bezeichnung / Nummer",
                     "floor": "Etage",
-                    "area_sqm": "Fläche (m²)"
+                    "area_sqm": "Fläche (m²)",
+                    "rooms": "Zimmer",
+                    "person_count": "Personen (Anzahl)"
                 })
-                cols_u = [c for c in ["Einheiten-ID", "Bezeichnung / Nummer", "Etage", "Fläche (m²)"] if c in df_u.columns]
+                cols_u = [c for c in ["Einheiten-ID", "Bezeichnung / Nummer", "Etage", "Fläche (m²)", "Zimmer", "Personen (Anzahl)"] if c in df_u.columns]
                 st.dataframe(df_u[cols_u], use_container_width=True, hide_index=True)
             else:
                 st.info("Noch keine separaten Einheiten angelegt.")
@@ -1784,16 +1885,43 @@ elif menu == "Liegenschaften & Mieter":
                     st.markdown("##### Neue Wohneinheit anlegen")
                     with st.form("form_add_unit_to_prop", clear_on_submit=True):
                         u_num = st.text_input("Bezeichnung / Nummer *", placeholder="z. B. Wohnung 4 (2. OG)")
-                        u_floor = st.text_input("Etage", value="1. OG")
-                        u_area = st.number_input("Wohnfläche (m²) *", min_value=10.0, value=75.0, step=5.0)
+                        col_uf, col_ua = st.columns(2)
+                        with col_uf:
+                            u_floor = st.text_input("Etage", value="1. OG")
+                        with col_ua:
+                            u_area = st.number_input("Wohnfläche (m²) *", min_value=10.0, value=75.0, step=5.0)
+                        col_ur, col_up = st.columns(2)
+                        with col_ur:
+                            u_rooms = st.number_input("Zimmer", min_value=1.0, value=2.0, step=0.5)
+                        with col_up:
+                            u_persons = st.number_input("Anzahl der lebenden Personen", min_value=1, value=1, step=1)
                         submit_unit = st.form_submit_button("Einheit anlegen", icon=":material/save:", type="primary", use_container_width=True)
                         if submit_unit:
                             if not u_num.strip():
                                 st.error("Bitte Bezeichnung angeben!")
                             else:
-                                add_unit(active_property_id, u_num.strip(), u_area, u_floor)
+                                add_unit(active_property_id, u_num.strip(), u_area, u_floor, rooms=u_rooms, person_count=u_persons)
                                 st.success(f"Wohneinheit '{u_num}' angelegt!")
                                 st.rerun()
+
+            if prop_units:
+                with st.expander("✏️ Bestehende Wohneinheit bearbeiten", expanded=False):
+                    unit_edit_map = {f"{u['unit_number']} ({u['area_sqm']:.0f} m² · {u.get('floor') or 'EG'})": u for u in prop_units}
+                    sel_u_lbl = st.selectbox("Wohneinheit auswählen", list(unit_edit_map.keys()), key="sel_u_edit_box")
+                    target_u = unit_edit_map[sel_u_lbl]
+                    with st.form("form_edit_existing_unit"):
+                        col_eu1, col_eu2 = st.columns(2)
+                        with col_eu1:
+                            eu_num = st.text_input("Bezeichnung / Nummer *", value=target_u["unit_number"])
+                            eu_floor = st.text_input("Etage", value=target_u.get("floor") or "EG")
+                        with col_eu2:
+                            eu_area = st.number_input("Wohnfläche (m²) *", min_value=1.0, value=float(target_u.get("area_sqm") or 50.0), step=1.0)
+                            eu_rooms = st.number_input("Zimmer", min_value=1.0, value=float(target_u.get("rooms") or 2.0), step=0.5)
+                        eu_persons = st.number_input("Anzahl der lebenden Personen", min_value=1, value=int(target_u.get("person_count") or 1), step=1)
+                        if st.form_submit_button("Wohneinheit aktualisieren", icon=":material/save:", type="primary", use_container_width=True):
+                            update_unit(target_u["unit_id"], eu_num.strip(), eu_area, eu_floor.strip(), rooms=eu_rooms, person_count=eu_persons)
+                            st.success(f"Wohneinheit '{eu_num}' erfolgreich aktualisiert!")
+                            st.rerun()
 
         with tab_prop_settings:
             st.subheader("Liegenschaftsdaten & Alias")
@@ -1810,6 +1938,20 @@ elif menu == "Liegenschaften & Mieter":
                     ep_city = st.text_input("Ort *", value=prop["city"])
                 ep_area = st.number_input("Gesamtfläche (m²) *", min_value=0.0, value=float(prop["total_area_sqm"] or 0.0), step=10.0)
 
+                col_ep_by, col_ep_ht, col_ep_es = st.columns(3)
+                with col_ep_by:
+                    ep_by = st.text_input("Baujahr (optional)", value=str(prop.get("construction_year") or ""))
+                with col_ep_ht:
+                    cur_ht = prop.get("heating_type") or ""
+                    ht_opts = ["", "Zentralheizung", "Etagenheizung", "Fernwärme", "Wärmepumpe", "Einzelöfen", "Sonstige"]
+                    ht_idx = ht_opts.index(cur_ht) if cur_ht in ht_opts else (len(ht_opts) - 1 if cur_ht else 0)
+                    ep_ht = st.selectbox("Heizungsart (optional)", ht_opts, index=ht_idx)
+                with col_ep_es:
+                    cur_es = prop.get("energy_source") or ""
+                    es_opts = ["", "Erdgas", "Heizöl", "Fernwärme", "Strom / Umweltwärme", "Holzpellets", "Sonstige"]
+                    es_idx = es_opts.index(cur_es) if cur_es in es_opts else (len(es_opts) - 1 if cur_es else 0)
+                    ep_es = st.selectbox("Energieträger (optional)", es_opts, index=es_idx)
+
                 save_p_btn = st.form_submit_button("Liegenschaft speichern", icon=":material/save:", type="primary", use_container_width=True)
                 if save_p_btn:
                     if not ep_name.strip() or not ep_street.strip() or not ep_zip.strip() or not ep_city.strip():
@@ -1822,7 +1964,10 @@ elif menu == "Liegenschaften & Mieter":
                             street=ep_street.strip(),
                             zip_code=ep_zip.strip(),
                             city=ep_city.strip(),
-                            total_area_sqm=ep_area
+                            total_area_sqm=ep_area,
+                            construction_year=ep_by.strip() or None,
+                            heating_type=ep_ht.strip() or None,
+                            energy_source=ep_es.strip() or None
                         )
                         st.success("Liegenschaftsdaten erfolgreich gespeichert!")
                         st.rerun()

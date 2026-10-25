@@ -92,15 +92,24 @@ def draft_letter_with_ai(
             f"Mietobjekt / Liegenschaft: {prop_str}"
         ]
     else:
-        if not salutation:
-            salutation = "Frau" if any(fn in recipient_name.lower() for fn in ["laura", "sabine", "anna", "maria", "sarah", "julia", "lisa"]) else "Herr"
-        last_name = (tenant_info.get("last_name") if tenant_info else recipient_name.split()[-1]).strip()
-        formal_greeting = f"Sehr geehrte Frau {last_name}" if salutation == "Frau" else f"Sehr geehrter Herr {last_name}"
-        context_lines = [
-            f"Empfänger: {recipient_name}",
-            f"Anrede: {salutation}",
-            f"Verbindliche Briefanredezeile: {formal_greeting},"
-        ]
+        if tenant_info and tenant_info.get("combined_salutation"):
+            formal_greeting = tenant_info["combined_salutation"]
+            disp_name = tenant_info.get("display_name", recipient_name)
+            context_lines = [
+                f"Empfänger: {disp_name}",
+                f"Anrede: Gemeinschaftlicher Mietvertrag (mehrere Mieter)",
+                f"Verbindliche Briefanredezeile: {formal_greeting},"
+            ]
+        else:
+            if not salutation:
+                salutation = "Frau" if any(fn in recipient_name.lower() for fn in ["laura", "sabine", "anna", "maria", "sarah", "julia", "lisa"]) else "Herr"
+            last_name = (tenant_info.get("last_name") if tenant_info else recipient_name.split()[-1]).strip()
+            formal_greeting = f"Sehr geehrte Frau {last_name}" if salutation == "Frau" else f"Sehr geehrter Herr {last_name}"
+            context_lines = [
+                f"Empfänger: {recipient_name}",
+                f"Anrede: {salutation}",
+                f"Verbindliche Briefanredezeile: {formal_greeting},"
+            ]
         if tenant_info:
             context_lines.append(f"Mietobjekt: {tenant_info.get('property_name', 'Wohnanlage')}")
             context_lines.append(f"Wohneinheit: {tenant_info.get('unit_number', '')}")
@@ -247,6 +256,14 @@ WICHTIGE REGELN NACH KATEGORIE:
                 data = json.loads(json_match.group(0))
 
         if "subject" in data and "body" in data:
+            # Bei gemeinschaftlichen Mietverträgen DIN-Anredezeile für alle Vertragspartner garantieren
+            if tenant_info and tenant_info.get("combined_salutation"):
+                expected_greeting = tenant_info["combined_salutation"]
+                body_lines = data["body"].split("\n")
+                if body_lines and not (expected_greeting.lower() in body_lines[0].lower()):
+                    if any(w in body_lines[0].lower() for w in ["sehr geehrte", "sehr geehrter", "hallo", "guten tag"]):
+                        body_lines[0] = f"{expected_greeting},"
+                        data["body"] = "\n".join(body_lines)
             return data
     except Exception:
         pass
@@ -284,12 +301,16 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
         unit_str = f"in der Liegenschaft {prop_str}"
         unit_label = f"Liegenschaft {prop_str}"
     else:
-        salutation = (tenant_info.get("salutation") if tenant_info else "") or ""
-        if not salutation:
-            salutation = "Frau" if any(fn in recipient_name.lower() for fn in ["laura", "sabine", "anna", "maria", "sarah", "julia", "lisa"]) else "Herr"
+        if tenant_info and tenant_info.get("combined_salutation"):
+            sal_greeting = tenant_info["combined_salutation"]
+            recipient_name = tenant_info.get("display_name", recipient_name)
+        else:
+            salutation = (tenant_info.get("salutation") if tenant_info else "") or ""
+            if not salutation:
+                salutation = "Frau" if any(fn in recipient_name.lower() for fn in ["laura", "sabine", "anna", "maria", "sarah", "julia", "lisa"]) else "Herr"
 
-        last_name = (tenant_info.get("last_name") if tenant_info else recipient_name.split()[-1]).strip()
-        sal_greeting = f"Sehr geehrte Frau {last_name}" if salutation == "Frau" else f"Sehr geehrter Herr {last_name}"
+            last_name = (tenant_info.get("last_name") if tenant_info else recipient_name.split()[-1]).strip()
+            sal_greeting = f"Sehr geehrte Frau {last_name}" if salutation == "Frau" else f"Sehr geehrter Herr {last_name}"
         unit_str = tenant_info.get("unit_number", "Ihrer gemieteten Wohneinheit") if tenant_info else "Ihrer gemieteten Wohneinheit"
         unit_label = unit_str if unit_str.lower().startswith("wohnung") else f"Wohnung {unit_str}"
 
@@ -927,8 +948,11 @@ def handle_agent_request(user_prompt: str, model: str = "llama3") -> Dict[str, A
 
         if not raw_name and not is_all_tenants:
             # Letzter Versuch: Aus prompt_lower nach Namen suchen
+            from agent.tools import parse_co_tenants
             for t in get_all_tenants():
-                if t["last_name"].lower() in user_prompt.lower() or t["first_name"].lower() in user_prompt.lower():
+                if (t["last_name"].lower() in user_prompt.lower() or 
+                    t["first_name"].lower() in user_prompt.lower() or 
+                    any(c.get("last_name", "").lower() in user_prompt.lower() for c in parse_co_tenants(t.get("co_tenants")))):
                     raw_name = f"{t['first_name']} {t['last_name']}"
                     break
 
@@ -984,11 +1008,12 @@ def handle_agent_request(user_prompt: str, model: str = "llama3") -> Dict[str, A
         else:
             db_tenant = find_tenant_by_name(raw_name)
             if db_tenant:
-                full_name = f"{db_tenant['first_name']} {db_tenant['last_name']}"
+                full_name = db_tenant.get("address_recipient") or db_tenant.get("display_name") or f"{db_tenant['first_name']} {db_tenant['last_name']}"
+                disp_label = db_tenant.get("display_name") or f"{db_tenant['first_name']} {db_tenant['last_name']}"
                 unit_info = f"{db_tenant['unit_number']} ({db_tenant['property_name']})"
                 addr_line = f"{db_tenant.get('street', 'Lindenstraße 14')}\n{db_tenant.get('zip_code', '10115')} {db_tenant.get('city', 'Berlin')}"
                 prop_name = db_tenant.get("property_name", sender_name)
-                note = f"👤 *Mieter aus deiner Datenbank zugeordnet: {full_name} ({unit_info})*"
+                note = f"👤 *Mieter aus deiner Datenbank zugeordnet: {disp_label} ({unit_info})*"
             else:
                 full_name = raw_name
                 addr_line = "Musterstraße 1\n10115 Berlin"

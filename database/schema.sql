@@ -7,7 +7,10 @@ CREATE TABLE IF NOT EXISTS properties (
     street TEXT NOT NULL,
     zip_code TEXT NOT NULL,
     city TEXT NOT NULL,
-    total_area_sqm REAL NOT NULL
+    total_area_sqm REAL NOT NULL,
+    construction_year TEXT,
+    heating_type TEXT,
+    energy_source TEXT
 );
 
 CREATE TABLE IF NOT EXISTS units (
@@ -16,6 +19,8 @@ CREATE TABLE IF NOT EXISTS units (
     unit_number TEXT NOT NULL,
     floor TEXT,
     area_sqm REAL NOT NULL,
+    rooms REAL DEFAULT 2,
+    person_count INTEGER DEFAULT 1,
     FOREIGN KEY (property_id) REFERENCES properties (id) ON DELETE CASCADE
 );
 
@@ -27,6 +32,7 @@ CREATE TABLE IF NOT EXISTS tenants (
     last_name TEXT NOT NULL,
     email TEXT,
     phone TEXT,
+    co_tenants TEXT DEFAULT '[]', -- JSON-Array für weitere Mieter auf demselben Mietvertrag
     lease_start DATE NOT NULL,
     lease_end DATE,
     cold_rent REAL NOT NULL,
