@@ -171,6 +171,45 @@ STRIKTE VORGABEN FÜR PRIVATEN VERMIETER:
 - Grußformel: {closing_phrase}
 - Unterschrift: {signature_title}"""
 
+    cur_cold = float(tenant_info.get("cold_rent", 900.0)) if tenant_info else 900.0
+    cur_nk = float(tenant_info.get("utility_advance", 220.0)) if tenant_info else 220.0
+    unit_str = tenant_info.get("unit_number", "Wohneinheit") if tenant_info else "Wohneinheit"
+    prompt_lower = user_prompt.lower()
+
+    # Prozent- oder Euro-Beträge vorab extrahieren und berechnen
+    pct_match = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:%|prozent)", prompt_lower)
+    is_percentage = bool(pct_match)
+    pct_val = float(pct_match.group(1).replace(",", ".")) if pct_match else 0.0
+
+    amt_match = re.search(r"(?:rückstand|rueckstand|betrag|von|um|über|ueber)?\s*(\d+(?:[.,]\d+)?)\s*(?:€|euro|\beuro\b)?", prompt_lower)
+    euro_val = float(amt_match.group(1).replace(",", ".")) if amt_match and not is_percentage else 0.0
+
+    # Mieterhöhung Berechnungen
+    calc_ma_diff = round(cur_cold * (pct_val / 100.0), 2) if is_percentage else (euro_val if euro_val > 0 else 50.0)
+    calc_ma_inc_str = f"+ {pct_val:.1f} % (+ {calc_ma_diff:.2f} €)" if is_percentage else f"+ {calc_ma_diff:.2f} €"
+    calc_ma_new_cold = cur_cold + calc_ma_diff
+    calc_ma_new_total = calc_ma_new_cold + cur_nk
+
+    # Mietsenkung Berechnungen
+    calc_ms_diff = round(cur_cold * (pct_val / 100.0), 2) if is_percentage else (euro_val if euro_val > 0 else 50.0)
+    calc_ms_dec_str = f"- {pct_val:.1f} % (- {calc_ms_diff:.2f} €)" if is_percentage else f"- {calc_ms_diff:.2f} €"
+    calc_ms_new_cold = max(0.0, cur_cold - calc_ms_diff)
+    calc_ms_new_total = calc_ms_new_cold + cur_nk
+
+    # Nebenkosten Berechnungen
+    calc_nk_diff = round(cur_nk * (pct_val / 100.0), 2) if is_percentage else (euro_val if euro_val > 0 else 20.0)
+    calc_nk_diff_str = f"{pct_val:.1f} % ({calc_nk_diff:.2f} €)" if is_percentage else f"{calc_nk_diff:.2f} €"
+    calc_nke_new_nk = cur_nk + calc_nk_diff
+    calc_nke_total = cur_cold + calc_nke_new_nk
+    calc_nks_new_nk = max(0.0, cur_nk - calc_nk_diff)
+    calc_nks_total = cur_cold + calc_nks_new_nk
+
+    # Zahlungsrückstand & Frist
+    overdue_calc = euro_val if euro_val > 0 else 80.0
+    days_match = re.search(r"(?:frist|innerhalb)?\s*(?:von)?\s*(\d+)\s*(?:tagen|tage|t)\b", prompt_lower)
+    calc_days = int(days_match.group(1)) if days_match else 7
+    due_calc_str = (now + timedelta(days=calc_days)).strftime("%d.%m.%Y")
+
     role_desc = "ein privater Vermieter und Experte für deutsches Mietrecht (BGB)" if is_private else "ein erfahrener Hausverwalter und Experte für deutsches Mietrecht (BGB)"
     system_instruction = f"""Du bist {role_desc}.
 Deine Aufgabe ist es, anhand der Nutzeranweisung ein professionelles, rechtssicheres und druckfertiges Schreiben an den Mieter zu verfassen.
@@ -180,61 +219,102 @@ Deine Aufgabe ist es, anhand der Nutzeranweisung ein professionelles, rechtssich
 KONTEXT DES MIETERS:
 {tenant_context}
 
-GESETZLICHE FRISTEN & DATEN (Stand: {today_str}):
-- Bei Kaltmieterhöhung (§ 558 BGB):
-  * Gesetzliche Zustimmungsfrist / Überlegungsfrist (§ 558b Abs. 1 BGB): bis zum {deadline_date_str} (Ende des übernächsten Monats)
-  * Wirksamkeit der neuen Kaltmiete: ab dem {effective_cold_str} (Beginn des dritten Monats)
-- Bei Anpassung der Nebenkostenvorauszahlung (§ 560 Abs. 4 BGB):
-  * Wirksamkeit: ab dem {effective_nk_str} (auf die Erklärung folgender übernächster Monatserster)
+GESETZLICHE FRISTEN & VORBERECHNETE WERTE (Stand: {today_str}):
+- Reguläre Nettokaltmiete: {cur_cold:.2f} €
+- Reguläre Nebenkostenvorauszahlung: {cur_nk:.2f} €
+- Bei Mieterhöhung (§ 558 BGB):
+  * Erhöhung: {calc_ma_inc_str}
+  * Neue Kaltmiete: {calc_ma_new_cold:.2f} € | Neue Gesamtmiete: {calc_ma_new_total:.2f} €
+  * Wirksamkeit der neuen Miete ab: {effective_cold_str}
+  * Gesetzliche Zustimmungsfrist (§ 558b Abs. 1 BGB): bis zum {deadline_date_str}
+- Bei Mietsenkung:
+  * Senkung: {calc_ms_dec_str}
+  * Neue Kaltmiete: {calc_ms_new_cold:.2f} € | Neue Gesamtmiete: {calc_ms_new_total:.2f} €
+  * Wirksamkeit ab: {effective_nk_str}
+- Bei Nebenkostenanpassung (§ 560 Abs. 4 BGB):
+  * Anpassung: {calc_nk_diff_str}
+  * Wirksamkeit ab: {effective_nk_str}
 - Bei Zahlungsfristen:
-  * 7 Tage Frist: bis zum {due_in_7_days}
-  * 14 Tage Frist: bis zum {due_in_14_days}
+  * Zahlungsfrist ({calc_days} Tage): bis zum {due_calc_str}
+  * Rückstand: {overdue_calc:.2f} €
 
-WICHTIGE REGELN NACH KATEGORIE:
+WICHTIGE REGELN & PFLICHTINHALTE NACH KATEGORIE:
 
-1. ZAHLUNGSERINNERUNGEN & MAHNUNGEN:
-   - Der in der Anweisung genannte Rückstandsbetrag (z. B. 80,00 €) ist der KONKRETE AUSSTEHENDE BETRAG, der gefordert wird. Ersetze diesen NIEMALS durch die reguläre Monatsmiete (z. B. 500 €)!
-   - Wenn eine Frist in Tagen genannt wird (z. B. "Frist von 7 Tagen"):
-     Bedeutet: "Zahlungsfrist von 7 Tagen (bis zum {due_in_7_days})".
-     Schreibe NIEMALS "bis zum 7. des Monats"!
-   - Betreff: "Zahlungserinnerung: Ausstehende Mietzahlung für die Wohnung [Wohneinheit]"
-   - Inhalt:
-     * Höflicher Hinweis, dass bei Überprüfung der Zahlungseingänge ein Zahlungsrückstand in Höhe von [konkreter Rückstandsbetrag] € festgestellt wurde.
-     * Bitte um Überweisung des konkreten Rückstandsbetrags innerhalb der gesetzten Frist (z. B. innerhalb von 7 Tagen bis zum {due_in_7_days}).
-     * Freundliche Schlussklausel: "Sollten Sie den Betrag in den letzten Tagen bereits überwiesen haben, betrachten Sie dieses Schreiben bitte als gegenstandslos."
+1. MIETERHÖHUNG (KALTMIETE nach § 558 BGB):
+   - Betreff: "Mieterhöhungsverlangen gemäß § 558 BGB für {unit_str}"
+   - Der Brieftext MUSS ausformuliert sein (mindestens 4 Absätze):
+     1. Ankündigung der Erhöhung der Nettokaltmiete gemäß § 558 BGB zur Anpassung an die ortsübliche Vergleichsmiete und Hinweis auf Einhaltung der Jahressperrfrist sowie der gesetzlichen Kappungsgrenze.
+     2. Genaue Aufstellung der Miete:
+        • Bisherige monatliche Nettokaltmiete: {cur_cold:.2f} €
+        • Erhöhungsbetrag: {calc_ma_inc_str}
+        • Neue monatliche Nettokaltmiete ab dem {effective_cold_str}: {calc_ma_new_cold:.2f} €
+        • Unveränderte Nebenkostenvorauszahlung: {cur_nk:.2f} €
+        • Neue monatliche Gesamtmiete: {calc_ma_new_total:.2f} €
+     3. Aufforderung zur schriftlichen Zustimmung gemäß § 558b Abs. 1 BGB bis zum Ablauf der Zustimmungsfrist am {deadline_date_str} sowie Bitte um rechtzeitige Anpassung der Mietzahlung / des Dauerauftrags ab {effective_cold_str}.
+     4. Höflicher Schlusssatz mit Bereitschaft für Rückfragen.
 
-2. ABMAHNUNGEN:
-   - Wegen Zahlungsverzugs:
-     * Betreff: "Abmahnung wegen Zahlungsverzugs"
-     * Konkreten Zahlungsrückstand nennen, Frist setzen, rechtlicher Hinweis auf § 543 Abs. 2 Nr. 3 BGB (Gefahr der fristlosen Kündigung bei Fortsetzung des Verzugs).
-   - Wegen Hausordnung / Ruhestörung / Pflichtverletzung:
-     * Betreff: "Abmahnung wegen vertragswidrigen Verhaltens"
-     * Konkreten Vorfall sachlich darlegen, Aufforderung zur künftigen Einhaltung, Kündigungsandrohung im Wiederholungsfall.
+2. MIETSENKUNG (KALTMIETE):
+   - Betreff: "Mitteilung über eine Herabsetzung der monatlichen Nettokaltmiete für {unit_str}"
+   - Ausführlicher Brieftext:
+     1. Erfreuliche Mitteilung über die Senkung der Kaltmiete ab {effective_nk_str}.
+     2. Genaue Aufstellung: bisherige Kaltmiete ({cur_cold:.2f} €), Senkungsbetrag ({calc_ms_dec_str}), neue Kaltmiete ({calc_ms_new_cold:.2f} €), neue Gesamtmiete ({calc_ms_new_total:.2f} €).
+     3. Bitte um Anpassung des Dauerauftrags bzw. Hinweis auf automatische Lastschriftanpassung.
 
-3. MIETBESCHEINIGUNGEN:
-   - Betreff: "Miet- und Mietschuldenfreiheitsbescheinigung für die Wohnung [Wohneinheit]"
-   - Bestätigung des Mietverhältnisses seit [Mietbeginn], der Miethöhe und dass die Miete stets vollständig und fristgerecht entrichtet wurde.
+3. NEBENKOSTENANPASSUNG (§ 560 Abs. 4 BGB):
+   - Betreff: "Anpassung der monatlichen Betriebskostenvorauszahlung gemäß § 560 Abs. 4 BGB für {unit_str}"
+   - Ausführlicher Brieftext:
+     1. Begründung der Anpassung nach § 560 Abs. 4 BGB (veränderte Bewirtschaftungskosten/Abrechnung) ab {effective_nk_str}.
+     2. Aufstellung: bisherige Vorauszahlung ({cur_nk:.2f} €), Anpassung ({calc_nk_diff_str}), neue Vorauszahlung, unveränderte Kaltmiete ({cur_cold:.2f} €), neue Gesamtmiete.
+     3. Bitte um Anpassung des Dauerauftrags.
 
-4. MIETERHÖHUNG / MIETSENKUNG (KALTMIETE):
-   - Bei Mieterhöhung: Mieterhöhungsverlangen gemäß § 558 BGB zur Erhöhung der Nettokaltmiete.
-     * Frist zur schriftlichen Zustimmung: {deadline_date_str} (§ 558b Abs. 1 BGB).
-     * Wirksamkeit der neuen Miete ab: {effective_cold_str}.
-   - Bei Mietsenkung: Mitteilung über die Herabsetzung der monatlichen Nettokaltmiete ab {effective_nk_str}.
+4. ZAHLUNGSERINNERUNGEN & MAHNUNGEN:
+   - Betreff: "Zahlungserinnerung: Ausstehende Mietzahlung für {unit_str}"
+   - Ausführlicher Brieftext:
+     1. Höflicher Hinweis auf den konkreten Zahlungsrückstand in Höhe von {overdue_calc:.2f} €.
+     2. Fristsetzung innerhalb von {calc_days} Tagen (bis zum {due_calc_str}) auf das Mietkonto (IBAN: {landlord_iban}, Bank: {landlord_bank}).
+     3. Gegenstandslosklausel für den Fall, dass der Betrag bereits überwiesen wurde.
 
-5. NEBENKOSTENANPASSUNG (§ 560 Abs. 4 BGB):
-   - Anpassung der monatlichen Betriebskostenvorauszahlung ab dem {effective_nk_str}.
+5. ABMAHNUNGEN:
+   - Wegen Zahlungsverzugs: Konkreten Zahlungsrückstand ({overdue_calc:.2f} €) nennen, Frist setzen bis {due_calc_str}, ausdrücklicher rechtlicher Hinweis auf § 543 Abs. 2 Nr. 3 BGB (außerordentliche Kündigung).
+   - Wegen Hausordnung / Verhalten: Konkreten Vorfall darlegen, Aufforderung zur sofortigen Unterlassung, Kündigungsandrohung bei Wiederholung.
 
-6. BERECHNUNG BEI PROZENTANGABEN (z. B. 10% oder 15%):
-   - Bei Erhöhung: Neuer Betrag = Bisheriger Betrag * (1 + Prozent / 100)
-   - Bei Senkung: Neuer Betrag = Bisheriger Betrag * (1 - Prozent / 100)
+6. MIETBESCHEINIGUNGEN:
+   - Betreff: "Miet- und Mietschuldenfreiheitsbescheinigung für {unit_str}"
+   - Bestätigung des Mietverhältnisses, der Miethöhe und dass alle Mietzahlungen stets vollständig und fristgerecht geleistet wurden (Mietschuldenfreiheit).
 
-7. ALLGEMEINE FORMALIA (DIN 5008):
-   - AUSSCHLIESSLICH in fehlerfreiem Deutsch verfassen.
-   - Der Brieftext MUSS mit der exakten Anredezeile beginnen: '{formal_greeting},' (niemals 'Sehr geehrte(r) Frau/Herr'!).
-   - In der Betreffzeile NIEMALS das Wort 'Betreff' oder 'Betreff:' voranstellen (direkt mit dem Betrefftext beginnen).
-   - Grußformel stets 'Mit freundlichen Grüßen' OHNE Komma am Ende.
-   - Antworte AUSSCHLIESSLICH im gültigen JSON-Format mit den Schlüsseln "subject" und "body".
+7. HANDWERKER / WARTUNG:
+   - Betreff: "Ankündigung von Handwerker- und Instandhaltungsarbeiten"
+   - Art der Arbeiten, Termin / Zeitfenster, Bitte um Zutritt, Kontaktdaten für Rückfragen.
+
+8. BANKVERBINDUNG:
+   - Betreff: "Wichtige Mitteilung: Aktualisierung der Bankverbindung für Mietzahlungen"
+   - Datum des Wechsels, vollständige neue Kontodaten (IBAN {landlord_iban}, BIC {landlord_bic}, {landlord_bank}), Hinweis zur Dauerauftragsanpassung.
+
+9. HAUSORDNUNG / RUNDSCHREIBEN (AN ALLE MIETER):
+   - Aussagekräftiger Betreff, klare Darlegung der Regeln/Ruhezeiten, Appell an gegenseitige Rücksichtnahme.
+
+10. ALLGEMEINE ANWEISUNGEN:
+    - Verfasse in mindestens 2-3 Absätzen ein vollständiges, höfliches Schreiben, das genau auf die Nutzeranweisung eingeht.
+
+STRENGSTE REGELN FÜR DEN SCHLÜSSEL 'body':
+- 'body' darf NIEMALS leer sein oder nur aus Anrede und Grußformel bestehen!
+- 'body' MUSS den gesamten, VOLLSTÄNDIGEN Fließtext des Schreibens enthalten (mindestens 3-5 vollständige Absätze mit Einleitung, allen Beträgen/Fristen/Begründungen und Schlusssatz)!
+- Der Brieftext MUSS mit der exakten Anredezeile beginnen: '{formal_greeting},'
+- Grußformel stets 'Mit freundlichen Grüßen' OHNE Komma am Ende.
+- In der Betreffzeile NIEMALS das Wort 'Betreff' oder 'Betreff:' voranstellen.
+- Antworte AUSSCHLIESSLICH im gültigen JSON-Format mit den Schlüsseln "subject" und "body".
 """
+
+    def _is_substantive_letter(d: Any) -> bool:
+        if not isinstance(d, dict):
+            return False
+        b = str(d.get("body", "")).strip()
+        if len(b) < 120:
+            return False
+        # Prüfen, ob nach Entfernen von Anrede und Grußformel noch echter Inhalt vorliegt
+        cl = re.sub(r"^(?:Sehr geehrte[^\n]*|Hallo[^\n]*|Guten Tag[^\n]*)\s*", "", b, flags=re.IGNORECASE)
+        cl = re.sub(r"\n*(?:Mit freundlichen Grüßen|Freundliche Grüße|Herzliche Grüße)[,\s]*.*$", "", cl, flags=re.IGNORECASE | re.DOTALL).strip()
+        return len(cl) >= 80
 
     try:
         response = ollama.chat(
@@ -244,7 +324,7 @@ WICHTIGE REGELN NACH KATEGORIE:
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": f"Nutzeranweisung: {user_prompt}"}
             ],
-            options={"temperature": 0.1}
+            options={"temperature": 0.2}
         )
         content = response["message"]["content"].strip()
         data = {}
@@ -255,7 +335,7 @@ WICHTIGE REGELN NACH KATEGORIE:
             if json_match:
                 data = json.loads(json_match.group(0))
 
-        if "subject" in data and "body" in data:
+        if _is_substantive_letter(data):
             # Bei gemeinschaftlichen Mietverträgen DIN-Anredezeile für alle Vertragspartner garantieren
             if tenant_info and tenant_info.get("combined_salutation"):
                 expected_greeting = tenant_info["combined_salutation"]
@@ -426,13 +506,15 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
 
     # 0c. Abmahnung Hausordnung / Pflichtverletzung
     if "abmahnung" in prompt_lower:
+        clean_incident = re.sub(r"^(?:schreibe|erstelle|verfasse|sende)\s+(?:ein(?:en)?\s+)?(?:brief|anschreiben|abmahnung|mitteilung|nachricht|schreiben)\s+(?:an\s+[^\s,]+(?:\s+[^\s,]+)?\s+)?(?:bezüglich|wegen|über|ueber|zu|aufgrund von)\s*:?\s*", "", user_prompt, flags=re.I).strip()
+        incident_str = clean_incident if clean_incident else user_prompt
         subject = f"Abmahnung wegen Verletzung der mietvertraglichen Pflichten ({unit_str})"
         if is_private:
             body = (
                 f"{sal_greeting},\n\n"
                 f"ich muss mich heute leider mit einer formellen Abmahnung bezüglich Ihres Mietverhältnisses über die Wohnung ({unit_str}) an Sie wenden.\n\n"
                 f"Es wurde wiederholt festgestellt, dass gegen die geltende Hausordnung und die mietvertraglichen Pflichten verstoßen wurde:\n"
-                f"{user_prompt}\n\n"
+                f"• {incident_str}\n\n"
                 f"Ein derartiges Verhalten beeinträchtigt den Hausfrieden nachhaltig und kann von der Hausgemeinschaft nicht toleriert werden. "
                 f"Ich fordere Sie hiermit auf, dieses Verhalten ab sofort dauerhaft einzustellen und sich an die Hausordnung zu halten.\n\n"
                 f"Sollte es erneut zu gleichartigen Pflichtverletzungen kommen, sehe ich mich gezwungen, das Mietverhältnis fristlos zu kündigen."
@@ -442,7 +524,7 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
                 f"{sal_greeting},\n\n"
                 f"wir müssen uns heute leider mit einer formellen Abmahnung bezüglich Ihres Mietverhältnisses über die Wohnung ({unit_str}) an Sie wenden.\n\n"
                 f"Es wurde wiederholt festgestellt, dass gegen die geltende Hausordnung und die mietvertraglichen Pflichten verstoßen wurde:\n"
-                f"{user_prompt}\n\n"
+                f"• {incident_str}\n\n"
                 f"Ein derartiges Verhalten beeinträchtigt den Hausfrieden nachhaltig und kann von der Hausgemeinschaft nicht toleriert werden. "
                 f"Wir fordern Sie hiermit auf, dieses Verhalten ab sofort dauerhaft einzustellen und sich an die Hausordnung zu halten.\n\n"
                 f"Sollte es erneut zu gleichartigen Pflichtverletzungen kommen, sehen wir uns gezwungen, das Mietverhältnis fristlos zu kündigen."
@@ -712,12 +794,14 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
     if any(w in prompt_lower for w in ["handwerker", "wartung", "reparatur", "begehung", "ablesung"]):
         subject = "Ankündigung von Handwerker- und Instandhaltungsarbeiten"
         scope_str = unit_str if is_all_tenants else f"in Ihrer Wohnanlage ({unit_str})"
-        contact_str = f"unter Tel. {landlord_phone}" if (is_private and landlord_phone) else "unserer Hausverwaltung"
+        contact_str = f"unter Tel. {landlord_phone}" if (is_private and landlord_phone) else "Ihres Vermieters" if is_private else "unserer Hausverwaltung"
+        clean_hw = re.sub(r"^(?:schreibe|erstelle|verfasse|sende)\s+(?:ein(?:en)?\s+)?(?:brief|anschreiben|mitteilung|nachricht|ankündigungsschreiben|schreiben)\s+(?:an\s+[^\s,]+(?:\s+[^\s,]+)?\s+)?(?:bezüglich|wegen|über|ueber|zu)\s*:?\s*", "", user_prompt, flags=re.I).strip()
+        hw_detail = clean_hw if clean_hw else user_prompt
         if is_private:
             body = (
                 f"{sal_greeting},\n\n"
                 f"ich kündige Ihnen hiermit anstehende Arbeiten {scope_str} an.\n\n"
-                f"Grund / Details: {user_prompt}\n\n"
+                f"Grund / Vorgesehene Arbeiten: {hw_detail}\n\n"
                 f"Bitte gewähren Sie den beauftragten Handwerkern zum vereinbarten Termin ungehinderten Zutritt zu den entsprechenden Bereichen. "
                 f"Sollten Sie Fragen oder Terminkollisionen haben, bitte ich um rechtzeitige Benachrichtigung ({contact_str}).\n\n"
                 f"Vielen Dank für Ihre Unterstützung und Ihr Verständnis."
@@ -726,7 +810,7 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
             body = (
                 f"{sal_greeting},\n\n"
                 f"wir kündigen Ihnen hiermit anstehende Arbeiten {scope_str} an.\n\n"
-                f"Grund / Details: {user_prompt}\n\n"
+                f"Grund / Vorgesehene Arbeiten: {hw_detail}\n\n"
                 f"Bitte gewähren Sie den beauftragten Handwerkern zum vereinbarten Termin ungehinderten Zutritt zu den entsprechenden Bereichen. "
                 f"Sollten Sie Fragen oder Terminkollisionen haben, bitten wir um rechtzeitige Benachrichtigung ({contact_str}).\n\n"
                 f"Vielen Dank für Ihre Unterstützung und Ihr Verständnis."
@@ -735,18 +819,24 @@ def _build_fallback_letter(user_prompt: str, recipient_name: str, tenant_info: O
 
     # Standard
     subject = f"Mitteilung Ihres Vermieters ({landlord_name})" if is_private else "Mitteilung Ihrer Hausverwaltung"
+    clean_prompt_body = re.sub(r"^(?:schreibe|erstelle|verfasse|sende)\s+(?:ein(?:en)?\s+)?(?:brief|anschreiben|mitteilung|nachricht|schreiben)\s+(?:an\s+[^\s,]+(?:\s+[^\s,]+)?\s+)?(?:bezüglich|wegen|über|ueber|zu|dass)\s*:?\s*", "", user_prompt, flags=re.I).strip()
+    if clean_prompt_body:
+        clean_prompt_body = clean_prompt_body[0].upper() + clean_prompt_body[1:]
+    else:
+        clean_prompt_body = user_prompt
+
     if is_private:
         body = (
             f"{sal_greeting},\n\n"
-            f"ich wende mich heute mit einer Mitteilung {unit_str} an Sie.\n\n"
-            f"{user_prompt}\n\n"
+            f"ich wende mich heute mit einer Mitteilung bezüglich {unit_str} an Sie.\n\n"
+            f"{clean_prompt_body}\n\n"
             f"Bei Rückfragen stehe ich Ihnen jederzeit gerne zur Verfügung."
         )
     else:
         body = (
             f"{sal_greeting},\n\n"
-            f"wir wenden uns heute mit einer Mitteilung {unit_str} an Sie.\n\n"
-            f"{user_prompt}\n\n"
+            f"wir wenden uns heute mit einer Mitteilung bezüglich {unit_str} an Sie.\n\n"
+            f"{clean_prompt_body}\n\n"
             f"Bei Rückfragen stehen wir Ihnen jederzeit gerne zur Verfügung."
         )
     return {"subject": subject, "body": body}
