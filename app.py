@@ -79,7 +79,7 @@ def check_tenant_unsaved(t_data) -> bool:
     if not t_data:
         return False
     tid = t_data.get("tenant_id")
-    if not tid or f"te_fn_{tid}" not in st.session_state:
+    if not tid or not any(k.startswith("te_") and k.endswith(f"_{tid}") for k in st.session_state):
         return False
 
     orig_sal = t_data.get("salutation", "Herr") or "Herr"
@@ -128,7 +128,7 @@ def check_property_unsaved(prop) -> bool:
     if not prop:
         return False
     pid = prop.get("id") or prop.get("property_id")
-    if not pid or f"pe_name_{pid}" not in st.session_state:
+    if not pid or not any(k.startswith("pe_") and k.endswith(f"_{pid}") for k in st.session_state):
         return False
 
     if str(st.session_state.get(f"pe_name_{pid}", "")).strip() != prop["name"].strip():
@@ -313,8 +313,12 @@ def confirm_unsaved_dialog():
                     st.session_state["previous_menu"] = pending.get("previous", "Liegenschaften & Mieter")
                 elif pending["type"] == "back_to_properties":
                     st.session_state["active_property_id"] = None
+                    st.session_state["prop_detail_tab_idx"] = 0
+                    st.session_state.pop("prop_detail_active_tab", None)
                 elif pending["type"] == "leave_settings":
                     st.session_state["show_settings"] = False
+                elif pending["type"] == "tab":
+                    st.session_state["prop_detail_tab_idx"] = pending.get("target_idx", 0)
             st.rerun()
     with c2:
         if st.button("Änderungen verwerfen", use_container_width=True, icon=":material/delete_forever:"):
@@ -332,8 +336,12 @@ def confirm_unsaved_dialog():
                     st.session_state["previous_menu"] = pending.get("previous", "Liegenschaften & Mieter")
                 elif pending["type"] == "back_to_properties":
                     st.session_state["active_property_id"] = None
+                    st.session_state["prop_detail_tab_idx"] = 0
+                    st.session_state.pop("prop_detail_active_tab", None)
                 elif pending["type"] == "leave_settings":
                     st.session_state["show_settings"] = False
+                elif pending["type"] == "tab":
+                    st.session_state["prop_detail_tab_idx"] = pending.get("target_idx", 0)
             st.rerun()
     with c3:
         if st.button("Weiter bearbeiten", use_container_width=True, icon=":material/edit:"):
@@ -689,12 +697,38 @@ def render_settings_page():
 
     current_settings = get_all_settings()
 
-    tab_vermieter, tab_ki, tab_briefe, tab_system = st.tabs([
-        f"Vermieterdaten & Bankverbindung{' 🔴' if has_unsaved_settings_changes() else ''}",
+    has_set_dirty = has_unsaved_settings_changes()
+    set_tab_label = f"Vermieterdaten & Bankverbindung{' 🔴' if has_set_dirty else ''}"
+    set_tabs_list = [
+        set_tab_label,
         "KI & Sprachmodell (Ollama)",
         "Brief- & Abrechnungsvorgaben",
         "System & Datensicherung"
-    ])
+    ]
+
+    prev_set_idx = st.session_state.get("settings_tab_idx", 0)
+    new_set_idx = prev_set_idx
+    if "settings_active_tab" in st.session_state:
+        cur_set_lbl = st.session_state["settings_active_tab"]
+        if "Vermieterdaten" in cur_set_lbl or "Bankverbindung" in cur_set_lbl:
+            new_set_idx = 0
+        elif "KI" in cur_set_lbl:
+            new_set_idx = 1
+        elif "Brief" in cur_set_lbl:
+            new_set_idx = 2
+        elif "System" in cur_set_lbl:
+            new_set_idx = 3
+
+    st.session_state["settings_tab_idx"] = new_set_idx
+    active_set_label = set_tabs_list[new_set_idx]
+    st.session_state["settings_active_tab"] = active_set_label
+
+    tab_vermieter, tab_ki, tab_briefe, tab_system = st.tabs(
+        set_tabs_list,
+        default=active_set_label,
+        key="settings_active_tab",
+        on_change="rerun"
+    )
 
     with tab_vermieter:
         st.subheader("Vermieterdaten & Bankverbindung")
@@ -1945,6 +1979,8 @@ elif menu == "Liegenschaften & Mieter":
                         with c_open:
                             if st.button("Öffnen", icon=":material/arrow_forward:", key=f"open_prop_{p['property_id']}", type="primary", use_container_width=True):
                                 st.session_state["active_property_id"] = p["property_id"]
+                                st.session_state["prop_detail_tab_idx"] = 0
+                                st.session_state.pop("prop_detail_active_tab", None)
                                 st.rerun()
                         with c_alias:
                             with st.popover("Alias", icon=":material/label:", use_container_width=True):
@@ -1968,6 +2004,8 @@ elif menu == "Liegenschaften & Mieter":
         prop = get_property_by_id(active_property_id)
         if not prop:
             st.session_state["active_property_id"] = None
+            st.session_state["prop_detail_tab_idx"] = 0
+            st.session_state.pop("prop_detail_active_tab", None)
             st.rerun()
 
         col_back, col_space, col_gear = st.columns([0.24, 0.60, 0.16])
@@ -1980,6 +2018,8 @@ elif menu == "Liegenschaften & Mieter":
                     st.rerun()
                 else:
                     st.session_state["active_property_id"] = None
+                    st.session_state["prop_detail_tab_idx"] = 0
+                    st.session_state.pop("prop_detail_active_tab", None)
                     st.rerun()
         with col_gear:
             gear_lbl_pd = f"Einstellungen{' 🔴' if has_unsaved_settings_changes() else ''}"
@@ -2012,13 +2052,52 @@ elif menu == "Liegenschaften & Mieter":
         has_t_dirty = has_unsaved_tenant_in_active_property()
         has_p_dirty = has_unsaved_property_in_active_property()
 
-        tab_tenants, tab_add_t, tab_edit_t, tab_units, tab_prop_settings = st.tabs([
+        tab_label_edit = f"Mieter bearbeiten & löschen{' 🔴' if has_t_dirty else ''}"
+        tab_label_prop = f"Liegenschaftsdaten & Alias{' 🔴' if has_p_dirty else ''}"
+        tabs_list = [
             "Mieterübersicht",
             "Neuen Mieter anlegen",
-            f"Mieter bearbeiten & löschen{' 🔴' if has_t_dirty else ''}",
+            tab_label_edit,
             "Wohneinheiten",
-            f"Liegenschaftsdaten & Alias{' 🔴' if has_p_dirty else ''}"
-        ])
+            tab_label_prop
+        ]
+
+        prev_idx = st.session_state.get("prop_detail_tab_idx", 0)
+        new_idx = prev_idx
+
+        # Falls ein Tab angeklickt wurde oder im Widget-State steht:
+        if "prop_detail_active_tab" in st.session_state:
+            cur_lbl = st.session_state["prop_detail_active_tab"]
+            if "bearbeiten" in cur_lbl:
+                new_idx = 2
+            elif "Liegenschaftsdaten" in cur_lbl or "Alias" in cur_lbl:
+                new_idx = 4
+            elif "anlegen" in cur_lbl:
+                new_idx = 1
+            elif "Wohneinheiten" in cur_lbl:
+                new_idx = 3
+            else:
+                new_idx = 0
+
+        # Wenn der Nutzer absichtlich von einem schmutzigen Tab wegklickt:
+        is_leaving_dirty_t = (prev_idx == 2 and new_idx != 2 and has_t_dirty)
+        is_leaving_dirty_p = (prev_idx == 4 and new_idx != 4 and has_p_dirty)
+
+        if is_leaving_dirty_t or is_leaving_dirty_p:
+            st.session_state["pending_nav"] = {"type": "tab", "target_idx": new_idx}
+            st.session_state["show_unsaved_dialog"] = True
+            new_idx = prev_idx  # Bleibe bis zur Bestätigung auf dem aktuellen Tab!
+
+        st.session_state["prop_detail_tab_idx"] = new_idx
+        active_tab_label = tabs_list[new_idx]
+        st.session_state["prop_detail_active_tab"] = active_tab_label
+
+        tab_tenants, tab_add_t, tab_edit_t, tab_units, tab_prop_settings = st.tabs(
+            tabs_list,
+            default=active_tab_label,
+            key="prop_detail_active_tab",
+            on_change="rerun"
+        )
 
         with tab_tenants:
             if prop_tenants:
@@ -2224,6 +2303,7 @@ elif menu == "Liegenschaften & Mieter":
                             )
                             for k in [f"te_sal_{tid}", f"te_fn_{tid}", f"te_ln_{tid}", f"te_unit_{tid}", f"te_unit_lbl_{tid}", f"te_cr_{tid}", f"te_nk_{tid}", f"te_start_{tid}", f"te_end_{tid}", f"te_em_{tid}", f"te_ph_{tid}", f"te_cosal_{tid}", f"te_cofn_{tid}", f"te_coln_{tid}"]:
                                 st.session_state.pop(k, None)
+                            st.session_state["prop_detail_tab_idx"] = 2
                             set_flash_message(f"Änderungen an Mieter {edit_fn} {edit_ln} erfolgreich gespeichert!")
                             st.rerun()
 
@@ -2231,6 +2311,7 @@ elif menu == "Liegenschaften & Mieter":
                         for k in [f"te_sal_{tid}", f"te_fn_{tid}", f"te_ln_{tid}", f"te_unit_{tid}", f"te_unit_lbl_{tid}", f"te_cr_{tid}", f"te_nk_{tid}", f"te_start_{tid}", f"te_end_{tid}", f"te_em_{tid}", f"te_ph_{tid}", f"te_cosal_{tid}", f"te_cofn_{tid}", f"te_coln_{tid}"]:
                             st.session_state.pop(k, None)
                         delete_tenant(tid)
+                        st.session_state["prop_detail_tab_idx"] = 0
                         set_flash_message(f"Mieter {t_data['first_name']} {t_data['last_name']} wurde gelöscht.", icon="🗑️")
                         st.rerun()
             else:
@@ -2351,6 +2432,7 @@ elif menu == "Liegenschaften & Mieter":
                         )
                         for k in [f"pe_name_{pid}", f"pe_alias_{pid}", f"pe_street_{pid}", f"pe_zip_{pid}", f"pe_city_{pid}", f"pe_area_{pid}", f"pe_by_{pid}", f"pe_ht_{pid}", f"pe_es_{pid}"]:
                             st.session_state.pop(k, None)
+                        st.session_state["prop_detail_tab_idx"] = 4
                         set_flash_message(f"Liegenschaftsdaten für '{ep_name}' erfolgreich gespeichert!")
                         st.rerun()
 
