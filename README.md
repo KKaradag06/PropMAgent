@@ -46,6 +46,10 @@
   - Erfassung und Bearbeitung von Kostenarten mit flexiblen Umlageschlüsseln (nach Wohnfläche m², Personen oder Direkterfassung).
   - Kopierfunktion für Vorjahresdaten als Basis für neue Abrechnungsjahre (auch liegenschaftsbezogen).
   - Tabellarische Jahresabrechnungen und 1-Klick-Generierung von Einzelabrechnungs-PDFs für alle Mieter.
+- 💾 **Datenbank-Backup & Wiederherstellung (Export & Import):**
+  - **1-Klick-Download:** Vollständige Sicherung der lokalen SQLite-Datenbank (`prop_management.db`) inklusive aller Liegenschaften, Einheiten, Mieter, Zahlungen und Belege.
+  - **Sichere Wiederherstellung:** Hochladen und Einspielen einer zuvor aus PropMAgent exportierten `.db`-Datei.
+  - **Mehrstufige Schutzprüfung:** Automatische Validierung des SQLite-Headers, Integritätsprüfung (`PRAGMA integrity_check`) und Schema-Validierung (Abweisung fremder Dateien), Inhalts-Voransicht, Sicherheitsbestätigung sowie ein automatisches Sicherheitsbackup der aktuellen Datenbank vor dem Überschreiben.
 
 ---
 
@@ -184,7 +188,7 @@ PropMAgent/
 ├── reports/
 │   ├── docx_generator.py    # Erzeugung von Word-Dokumenten nach DIN 5008 Form B
 │   └── pdf_generator.py     # Erzeugung von PDF-Dokumenten nach DIN 5008 Form B
-└── data/                    # Lokale Datenbank (propagent.db), Einstellungen & Exporte (Git-ignoriert)
+└── data/                    # Lokale Datenbank (prop_management.db), automatische Backups & Exporte (Git-ignoriert)
 ```
 
 ---

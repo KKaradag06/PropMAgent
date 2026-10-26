@@ -1127,7 +1127,7 @@ def render_settings_page():
         col_cs1, col_cs2, col_cs3 = st.columns(3)
         with col_cs1:
             st.markdown("**Lokale Datenbank (SQLite):**")
-            st.markdown("🟢 Bereit & verbunden (`propagent.db`)")
+            st.markdown("🟢 Bereit & verbunden (`prop_management.db`)")
         with col_cs2:
             st.markdown("**Ollama KI-Server:**")
             if ollama_status["online"]:
@@ -1157,22 +1157,86 @@ def render_settings_page():
         col_s4.metric("Kostenbelege", db_expenses)
 
         st.markdown("---")
-        st.markdown("##### 💾 Lokales Datenbank-Backup herunterladen")
-        st.write("Deine gesamte Datenbank (`prop_management.db`) enthält alle Mieter, Verträge, Zahlungen und Betriebskosten. Sichere sie mit einem Klick:")
+        st.markdown("##### 💾 Datenbank-Backup & Datensicherung")
+        st.caption("Sichere deinen gesamten Datenbestand als `.db`-Datei oder stelle ein zuvor heruntergeladenes Backup wieder her.")
 
-        from database.db import DB_PATH
-        if os.path.exists(DB_PATH):
-            with open(DB_PATH, "rb") as db_file:
-                db_bytes = db_file.read()
-            backup_filename = f"prop_management_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
-            st.download_button(
-                label="Datenbank-Backup herunterladen (.db)",
-                data=db_bytes,
-                file_name=backup_filename,
-                mime="application/x-sqlite3",
-                icon=":material/download:",
-                use_container_width=True
-            )
+        col_bak_dl, col_bak_up = st.columns(2, gap="medium")
+
+        from database.db import DB_PATH, validate_backup_file, restore_backup_file
+
+        with col_bak_dl:
+            with st.container(border=True):
+                st.markdown("###### 📥 Backup herunterladen")
+                st.write("Deine gesamte Datenbank (`prop_management.db`) enthält alle Liegenschaften, Einheiten, Mieter, Verträge, Zahlungen und Betriebskosten. Sichere sie mit einem Klick:")
+                if os.path.exists(DB_PATH):
+                    with open(DB_PATH, "rb") as db_file:
+                        db_bytes = db_file.read()
+                    backup_filename = f"prop_management_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+                    st.download_button(
+                        label="Datenbank-Backup herunterladen (.db)",
+                        data=db_bytes,
+                        file_name=backup_filename,
+                        mime="application/x-sqlite3",
+                        icon=":material/download:",
+                        use_container_width=True
+                    )
+                else:
+                    st.warning("Keine aktive Datenbankdatei gefunden.")
+
+        with col_bak_up:
+            with st.container(border=True):
+                st.markdown("###### 📤 Backup wiederherstellen / DB hochladen")
+                st.write("Stelle einen früheren Datenbestand aus einer PropMAgent-Backup-Datei wieder her:")
+
+                st.info(
+                    "⚠️ **Wichtiger Hinweis:**\n\n"
+                    "Lade hier ausschließlich **.db-Dateien** hoch, die zuvor als Backup aus **PropMAgent** heruntergeladen wurden. "
+                    "Fremde Datenbanken besitzen eine andere Tabellenstruktur und werden zum Schutz deiner Daten abgewiesen.",
+                    icon="ℹ️"
+                )
+
+                uploaded_backup = st.file_uploader(
+                    "Backup-Datei auswählen (.db)",
+                    type=["db", "sqlite", "sqlite3"],
+                    key="uploader_db_backup",
+                    help="Wähle eine zuvor aus PropMAgent exportierte .db-Backup-Datei aus."
+                )
+
+                if uploaded_backup is not None:
+                    b_bytes = uploaded_backup.getvalue()
+                    is_valid, val_msg, b_stats = validate_backup_file(b_bytes)
+                    if not is_valid:
+                        st.error(f"❌ **Ungültige Backup-Datei:** {val_msg}")
+                    else:
+                        st.success(
+                            f"✅ **Gültiges PropMAgent-Backup erkannt!**\n\n"
+                            f"• **Liegenschaften:** {b_stats.get('properties', 0)}  \n"
+                            f"• **Wohneinheiten:** {b_stats.get('units', 0)}  \n"
+                            f"• **Erfasste Mieter:** {b_stats.get('tenants', 0)}  \n"
+                            f"• **Kostenbelege:** {b_stats.get('expenses', 0)}  \n"
+                            f"• **Zahlungen:** {b_stats.get('payments', 0)}"
+                        )
+
+                        st.warning(
+                            "⚠️ **Achtung:** Durch das Wiederherstellen wird der aktuelle Datenbestand in PropMAgent durch diese Datei ersetzt.\n\n"
+                            "*(Vor dem Überschreiben wird automatisch eine Sicherheitskopie deiner aktuellen Datenbank im Ordner `data/backups/` gespeichert.)*"
+                        )
+
+                        with st.popover("⚠️ Jetzt Wiederherstellung bestätigen...", use_container_width=True):
+                            st.write("Bist du sicher? Alle aktuellen Daten werden durch das Backup ersetzt.")
+                            if st.button("Ja, Backup endgültig einspielen", type="primary", icon=":material/restore:", use_container_width=True, key="btn_confirm_restore_db"):
+                                success, rest_msg, rest_stats = restore_backup_file(b_bytes)
+                                if success:
+                                    for k in list(st.session_state.keys()):
+                                        if k.startswith("active_") or k.startswith("pe_") or k.startswith("te_") or k.startswith("set_"):
+                                            st.session_state.pop(k, None)
+                                    set_flash_message(
+                                        f"Datenbank erfolgreich wiederhergestellt! ({rest_stats.get('properties', 0)} Liegenschaften, {rest_stats.get('tenants', 0)} Mieter geladen)",
+                                        icon="✅"
+                                    )
+                                    st.rerun()
+                                else:
+                                    st.error(f"Wiederherstellung fehlgeschlagen: {rest_msg}")
 
         st.markdown("---")
         st.markdown("##### 🔄 Auf Werkseinstellungen zurücksetzen")
