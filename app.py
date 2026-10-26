@@ -273,7 +273,7 @@ def save_current_unsaved():
     if check_settings_unsaved(cur_settings):
         is_priv = (st.session_state.get("settings_landlord_type_selector") == "Privater Vermieter")
         lname = str(st.session_state.get("set_lname", cur_settings.get("landlord_name", ""))).strip()
-        save_settings({
+        save_dict = {
             "landlord_type": "private" if is_priv else "property_management",
             "landlord_name": lname,
             "landlord_contact_person": str(st.session_state.get("set_lperson", cur_settings.get("landlord_contact_person", ""))).strip(),
@@ -287,8 +287,11 @@ def save_current_unsaved():
             "landlord_iban": str(st.session_state.get("set_liban", cur_settings.get("landlord_iban", ""))).strip(),
             "landlord_bic": str(st.session_state.get("set_lbic", cur_settings.get("landlord_bic", ""))).strip(),
             "landlord_tax_id": str(st.session_state.get("set_ltax", cur_settings.get("landlord_tax_id", ""))).strip()
-        })
-        for k in ["set_lname", "set_lperson", "set_lstreet", "set_lzip", "set_lcity", "set_lphone", "set_lemail", "set_lholder", "set_lbank", "set_liban", "set_lbic", "set_ltax"]:
+        }
+        if "set_letter_city" in st.session_state:
+            save_dict["letter_city"] = str(st.session_state.get("set_letter_city", "")).strip()
+        save_settings(save_dict)
+        for k in ["set_lname", "set_lperson", "set_lstreet", "set_lzip", "set_lcity", "set_lphone", "set_lemail", "set_lholder", "set_lbank", "set_liban", "set_lbic", "set_ltax", "set_letter_city"]:
             st.session_state.pop(k, None)
 
 def discard_current_unsaved():
@@ -1039,6 +1042,25 @@ def render_settings_page():
         st.caption("Passe Standardfristen und Formulierungen an, die in allen Schreiben und Nebenkostenabrechnungen automatisch herangezogen werden.")
 
         with st.form("form_letter_defaults"):
+            st.markdown("##### 📍 Datumszeile & Ausstellungsort (DIN 5008)")
+            cur_letter_city = current_settings.get("letter_city", "")
+            def_landlord_city = current_settings.get("landlord_city", "Berlin")
+            col_d_city, col_d_city_prev = st.columns([1.2, 1.8])
+            with col_d_city:
+                new_letter_city = st.text_input(
+                    "Ausstellungsort für Datumszeile (Ort und Datum)",
+                    value=cur_letter_city,
+                    placeholder=f"Standard: {def_landlord_city}",
+                    help="Ort, der in der Datumszeile oben rechts auf allen Briefen und Nebenkostenabrechnungen gedruckt wird (z. B. 'Aachen, den 26.10.2026'). Bleibt dieses Feld leer, wird automatisch der Wohnort aus den Vermieterdaten verwendet."
+                )
+            with col_d_city_prev:
+                preview_city = (new_letter_city.strip() or def_landlord_city or "Berlin")
+                st.caption(
+                    "ℹ️ **Vorschau der Datumszeile:**\n\n"
+                    f"`{preview_city}, den {datetime.now().strftime('%d.%m.%Y')}`\n\n"
+                    "Wird in allen offiziellen Schreiben, Mahnungen, Mieterhöhungen sowie Nebenkostenabrechnungen eingesetzt."
+                )
+
             st.markdown("##### ⏱️ Gesetzliche Fristen & Zahlungsziele")
             col_d_pay, col_d_obj = st.columns(2)
             with col_d_pay:
@@ -1087,6 +1109,7 @@ def render_settings_page():
             save_letters = st.form_submit_button("Vorgaben speichern", type="primary", use_container_width=True)
             if save_letters:
                 save_settings({
+                    "letter_city": new_letter_city.strip(),
                     "default_payment_deadline_days": str(new_pay_days),
                     "default_utility_objection_days": str(new_obj_days),
                     "default_closing_phrase": new_closing,

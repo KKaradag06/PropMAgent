@@ -1194,9 +1194,13 @@ def handle_agent_request(user_prompt: str, model: str = "llama3") -> Dict[str, A
         clean_subj = re.sub(r"^(?:Betreff|Subject)\s*:\s*", "", subject, flags=re.IGNORECASE).strip()
         clean_body = re.sub(r"\n*(?:Mit freundlichen Grüßen|Freundliche Grüße|Herzliche Grüße)[,\s]*.*$", "", letter_text, flags=re.IGNORECASE | re.DOTALL).strip()
 
+        eff_date_city = (settings.get("letter_city") or settings.get("landlord_city") or "Berlin").strip()
+        today_date_str = datetime.now().strftime("%d.%m.%Y")
+
         msg = (
             f"📄 **Offizielles Schreiben für {full_name} erstellt! (DIN 5008 Form B)**\n\n"
             f"{note}\n\n"
+            f"*{eff_date_city}, den {today_date_str}*\n\n"
             f"**{clean_subj}**\n\n"
             f"---\n\n"
             f"{clean_body}\n\n"

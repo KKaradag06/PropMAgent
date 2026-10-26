@@ -35,6 +35,7 @@ DEFAULT_SETTINGS: Dict[str, str] = {
     "default_utility_objection_days": "30",
     "default_closing_phrase": "Mit freundlichen Grüßen",
     "default_signature_title": "Ihr Vermieter",
+    "letter_city": "",
     "letter_include_bank_details": "true"
 }
 

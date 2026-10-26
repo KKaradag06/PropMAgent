@@ -79,7 +79,8 @@ def generate_utility_bill_pdf(bill_data: Dict[str, Any], custom_message: str = "
 
     # 3. Datum & Betreff
     today_str = datetime.now().strftime("%d.%m.%Y")
-    elements.append(Paragraph(f"<para align='right'>{tenant['city']}, den {today_str}</para>", style_normal))
+    effective_date_city = (settings.get("letter_city") or landlord_city or tenant.get("city") or "Berlin").strip()
+    elements.append(Paragraph(f"<para align='right'>{effective_date_city}, den {today_str}</para>", style_normal))
     elements.append(Spacer(1, 0.4 * cm))
 
     elements.append(Paragraph(f"<b>Nebenkostenabrechnung für das Abrechnungsjahr {year}</b>", style_title))
@@ -318,6 +319,16 @@ def generate_formal_letter_pdf(
     ]
 
     date_display = datetime.now().strftime("%d.%m.%Y")
+    sender_city_name = ""
+    if sender_city:
+        parts = sender_city.strip().split()
+        if len(parts) > 1 and parts[0].isdigit():
+            sender_city_name = " ".join(parts[1:])
+        elif parts:
+            sender_city_name = parts[-1]
+    effective_date_city = (settings.get("letter_city") or settings.get("landlord_city") or sender_city_name or "Berlin").strip()
+    date_line_text = f"{effective_date_city}, den {date_display}"
+
     sender_title_line = f"<b>{sender_name}</b> (Vermieter)<br/>" if is_private else f"<b>{sender_name}</b><br/>"
     prop_line = f"{property_name}<br/>" if (property_name and property_name != sender_name and not is_private) else ""
     right_cell_html = (
@@ -327,7 +338,7 @@ def generate_formal_letter_pdf(
         f"{sender_city}<br/>"
         f"Tel.: {sender_phone}<br/>"
         f"E-Mail: {sender_email}<br/><br/>"
-        f"Datum: {date_display}"
+        f"{date_line_text}"
     )
     right_cell_elements = [
         Paragraph(right_cell_html, style_info_block)

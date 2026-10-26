@@ -117,6 +117,16 @@ def generate_formal_letter_docx(
     r_snd1.font.size = Pt(10.0)
     r_snd1.font.bold = True
 
+    sender_city_name = ""
+    if sender_city:
+        parts = sender_city.strip().split()
+        if len(parts) > 1 and parts[0].isdigit():
+            sender_city_name = " ".join(parts[1:])
+        elif parts:
+            sender_city_name = parts[-1]
+    effective_date_city = (settings.get("letter_city") or settings.get("landlord_city") or sender_city_name or "Berlin").strip()
+    date_line_text = f"{effective_date_city}, den {date_display}"
+
     prop_txt = f"{property_name}\n" if (property_name and property_name != sender_name and not is_private) else ""
     info_text = (
         f"{prop_txt}"
@@ -124,7 +134,7 @@ def generate_formal_letter_docx(
         f"{sender_city}\n"
         f"Tel.: {sender_phone}\n"
         f"E-Mail: {sender_email}\n\n"
-        f"Datum: {date_display}"
+        f"{date_line_text}"
     )
     r_snd2 = p_info.add_run(info_text)
     r_snd2.font.name = "Arial"
