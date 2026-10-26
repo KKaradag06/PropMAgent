@@ -57,6 +57,12 @@ st.set_page_config(
 # Datenbank initialisieren & ggf. Beispieldaten laden
 init_db()
 init_settings()
+
+@st.cache_data(ttl=10)
+def get_cached_ollama_status(url: str):
+    """Gibt den Status des Ollama-Servers mit kurzem Cache (10s) zurück."""
+    return check_ollama_status(url)
+
 existing_props = query_db("SELECT COUNT(*) as cnt FROM properties;")
 if not existing_props or existing_props[0]["cnt"] == 0:
     seed()
@@ -654,8 +660,25 @@ with st.sidebar:
 
     current_settings = get_all_settings()
     model_name = current_settings.get("ollama_model", "llama3")
+    ollama_url_cfg = current_settings.get("ollama_url", "http://localhost:11434")
+    sb_status = get_cached_ollama_status(ollama_url_cfg)
+    sb_models = [m.lower() for m in sb_status.get("models", [])]
+    sb_clean = model_name.strip().lower()
+    is_sb_ready = any(
+        sb_clean == m or
+        f"{sb_clean}:latest" == m or
+        m.startswith(f"{sb_clean}:") or
+        sb_clean.startswith(m.split(":")[0])
+        for m in sb_models
+    )
+
     st.markdown("---")
-    st.caption(f"🤖 Aktives Modell: **{model_name}**")
+    if sb_status["online"] and is_sb_ready:
+        st.caption(f"🟢 KI aktiv: **{model_name}** (lokal)")
+    elif sb_status["online"]:
+        st.caption(f"🟡 Modell: **{model_name}** (Download ausstehend)")
+    else:
+        st.caption(f"⚪ KI-Modus: **Vorlagen-Fallback** (Ollama offline)")
 
     current_year = datetime.now().year
     st.markdown(f"""
@@ -696,6 +719,19 @@ def render_settings_page():
     st.info("🔒 **100% Lokal:** Alle Daten und KI-Anfragen laufen vollständig auf deinem PC.")
 
     current_settings = get_all_settings()
+    cur_model = current_settings.get("ollama_model", "llama3")
+    ollama_url = current_settings.get("ollama_url", "http://localhost:11434")
+    ollama_status = get_cached_ollama_status(ollama_url)
+    installed_models = ollama_status.get("models", [])
+    installed_lower = [m.lower() for m in installed_models]
+    cur_model_clean = cur_model.strip().lower()
+    is_model_installed = any(
+        cur_model_clean == m or
+        f"{cur_model_clean}:latest" == m or
+        m.startswith(f"{cur_model_clean}:") or
+        cur_model_clean.startswith(m.split(":")[0])
+        for m in installed_lower
+    )
 
     has_set_dirty = has_unsaved_settings_changes()
     set_tab_label = f"Vermieterdaten & Bankverbindung{' 🔴' if has_set_dirty else ''}"
@@ -886,18 +922,58 @@ def render_settings_page():
         st.subheader("Lokales Sprachmodell & Ollama-Verbindung")
         st.caption("PropMAgent kommuniziert direkt mit deinem lokalen Ollama-Server. Es werden zu keinem Zeitpunkt Daten ins Internet übertragen.")
 
-        ollama_status = check_ollama_status(current_settings.get("ollama_url", "http://localhost:11434"))
-        
         col_stat_info, col_stat_btn = st.columns([3, 1.2])
         with col_stat_info:
             if ollama_status["online"]:
                 st.success(f"🟢 **Ollama aktiv:** {ollama_status['message']}")
             else:
-                st.warning(f"🟡 **Ollama Status:** {ollama_status['message']}. Bitte stelle sicher, dass die Ollama-Anwendung läuft.")
+                st.warning(f"🟡 **Ollama Status:** {ollama_status['message']}")
         with col_stat_btn:
             st.write("")
             if st.button("Verbindung prüfen", icon=":material/refresh:", use_container_width=True, key="btn_check_ollama"):
+                get_cached_ollama_status.clear()
                 st.rerun()
+
+        if not ollama_status["online"]:
+            with st.container(border=True):
+                st.markdown("##### 🔌 Ollama nicht verbunden oder nicht gestartet")
+                st.write("PropMAgent führt alle Sprachmodelle 100% lokal über die kostenlose Software **Ollama** aus. Es werden zu keinem Zeitpunkt Daten oder Dokumente ins Internet übertragen.")
+                c_inst1, c_inst2 = st.columns([1.6, 2.4])
+                with c_inst1:
+                    st.link_button("Ollama herunterladen (ollama.com)", "https://ollama.com/download", icon=":material/download:", use_container_width=True)
+                with c_inst2:
+                    st.info("💡 **Bereits installiert?** Starte einfach das Ollama-Symbol im Windows-Startmenü oder der Taskleiste und klicke oben auf **'Verbindung prüfen'**.")
+        else:
+            if not is_model_installed:
+                with st.container(border=True):
+                    st.markdown(f"##### 📥 Modell '{cur_model}' noch nicht auf dem PC")
+                    st.write(f"Ollama ist aktiv, aber das ausgewählte Sprachmodell **{cur_model}** wurde noch nicht lokal gespeichert. Klicke unten auf den Button, um das Modell direkt in PropMAgent herunterzuladen (Größe ca. 4.7 GB) – ganz ohne Terminal!")
+                    if st.button(f"Modell '{cur_model}' jetzt herunterladen", icon=":material/cloud_download:", type="primary", use_container_width=True, key=f"btn_dl_active_{cur_model}"):
+                        with st.status(f"Lade '{cur_model}' über Ollama herunter... Bitte das Browserfenster geöffnet lassen.", expanded=True) as status_box:
+                            try:
+                                import ollama
+                                prog_bar = st.progress(0, text="Verbindung herstellen...")
+                                for step in ollama.pull(cur_model, stream=True):
+                                    s_msg = step.get("status", "")
+                                    c_bytes = step.get("completed", 0)
+                                    t_bytes = step.get("total", 0)
+                                    if t_bytes > 0:
+                                        pct = min(1.0, max(0.0, float(c_bytes) / float(t_bytes)))
+                                        mb_c = c_bytes / (1024 * 1024)
+                                        mb_t = t_bytes / (1024 * 1024)
+                                        prog_bar.progress(pct, text=f"{s_msg} ({int(pct*100)}% - {mb_c:.1f} MB / {mb_t:.1f} MB)")
+                                    else:
+                                        prog_bar.progress(0, text=s_msg)
+                                prog_bar.progress(1.0, text="Download abgeschlossen!")
+                                status_box.update(label=f"✅ Modell '{cur_model}' erfolgreich installiert!", state="complete", expanded=False)
+                                get_cached_ollama_status.clear()
+                                set_flash_message(f"Modell '{cur_model}' wurde erfolgreich installiert und ist sofort einsatzbereit!", icon="🎉")
+                                st.rerun()
+                            except Exception as err:
+                                status_box.update(label=f"Fehler beim Download: {err}", state="error")
+                                st.error(f"Download fehlgeschlagen: {err}")
+            else:
+                st.info(f"✅ **Aktives Modell bereit:** `{cur_model}` ist vollständig lokal auf deinem PC installiert und einsatzbereit.")
 
         with st.form("form_ai_settings"):
             known_models = ["llama3", "llama3.1", "mistral", "qwen2.5", "phi3"]
@@ -954,6 +1030,7 @@ def render_settings_page():
                     "ollama_url": new_url.strip(),
                     "ai_temperature": str(new_temp)
                 })
+                get_cached_ollama_status.clear()
                 set_flash_message(f"KI-Konfiguration gespeichert! Aktives Modell: **{final_model}**")
                 st.rerun()
 
@@ -1022,6 +1099,28 @@ def render_settings_page():
     with tab_system:
         st.subheader("Systemstatus, Datenbank & Datensicherung")
         st.caption("Prüfe den Zustand deiner lokalen Datenbank und lade jederzeit ein vollständiges Backup herunter.")
+
+        st.markdown("##### 🔍 Systembereitschaft & Komponenten-Status")
+        col_cs1, col_cs2, col_cs3 = st.columns(3)
+        with col_cs1:
+            st.markdown("**Lokale Datenbank (SQLite):**")
+            st.markdown("🟢 Bereit & verbunden (`propagent.db`)")
+        with col_cs2:
+            st.markdown("**Ollama KI-Server:**")
+            if ollama_status["online"]:
+                st.markdown(f"🟢 Verbunden (`{ollama_url}`)")
+            else:
+                st.markdown("🔴 Nicht erreichbar ([Ollama starten / laden](https://ollama.com/download))")
+        with col_cs3:
+            st.markdown("**Aktives Sprachmodell:**")
+            if is_model_installed:
+                st.markdown(f"🟢 **{cur_model}** einsatzbereit")
+            elif ollama_status["online"]:
+                st.markdown(f"🟡 **{cur_model}** (Download in 'KI & Sprachmodell')")
+            else:
+                st.markdown("⚪ Status ausstehend")
+
+        st.markdown("---")
 
         db_tenants = query_db("SELECT COUNT(*) as c FROM tenants;")[0]["c"]
         db_units = query_db("SELECT COUNT(*) as c FROM units;")[0]["c"]

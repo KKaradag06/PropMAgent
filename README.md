@@ -94,41 +94,71 @@
 
 ---
 
-## 🚀 Installation und Start
+## 🚀 Installation & Start
 
-### 1. Repository klonen
+### 🟢 Schnellstart für Vermieter & Anwender (Ohne Programmierkenntnisse)
+
+Für die Nutzung von PropMAgent müssen Sie **kein einziges Terminal-Kommando eingeben**. Befolgen Sie einfach diese 3 Schritte:
+
+1. **Python installieren** (falls noch nicht auf Ihrem PC vorhanden):
+   - Laden Sie [Python (Version 3.10 oder neuer)](https://www.python.org/downloads/) herunter und starten Sie die Installation.
+   - ⚠️ **Sehr wichtig:** Setzen Sie ganz zu Beginn des Installationsfensters unten den Haken bei:  
+     **`☑ Add python.exe to PATH`** *(oder "Python zu Umgebungsvariablen hinzufügen")*.
+2. **Ollama installieren** (für das 100% lokale KI-Sprachmodell):
+   - Laden Sie das kostenlose Installationsprogramm von [ollama.com/download](https://ollama.com/download) herunter und führen Sie es aus.
+   - Ollama läuft anschließend vollautomatisch und datenschutzkonform im Hintergrund auf Ihrem Rechner.
+3. **PropMAgent starten (1 Klick)**:
+   - Laden Sie dieses Repository herunter (oben auf den grünen Button **`Code`** ➔ **`Download ZIP`** klicken und entpacken).
+   - Machen Sie einfach einen **Doppelklick auf `PropMAgent_Starten.bat`** (oder `start.bat`).
+   - *Das Skript richtet alles automatisch beim ersten Mal ein und öffnet das Web-Dashboard direkt in Ihrem Browser!*
+   - 💡 **Modell-Tipp:** Wenn Sie noch kein KI-Modell heruntergeladen haben, können Sie **Llama 3** direkt in PropMAgent unter **`Einstellungen` ➔ `KI & Sprachmodell (Ollama)` mit einem Klick auf `Modell jetzt herunterladen`** installieren – ganz ohne Terminal!
+
+---
+
+<details>
+<summary><b>🛠️ Für Entwickler & manuelle Installation (Terminal / Konsole)</b></summary>
+<br>
+
+#### 1. Repository klonen
 ```bash
 git clone https://github.com/KKaradag06/PropMAgent.git
 cd PropMAgent
 ```
 
-### 2. Virtuelle Umgebung erstellen und aktivieren
+#### 2. Virtuelle Umgebung erstellen und aktivieren
 ```bash
 # Windows (PowerShell):
 python -m venv venv
-venv\Scripts\Activate.ps1
+venv\Scripts\activate.bat   # oder: venv\Scripts\Activate.ps1
 
 # Linux / macOS:
 python3 -m venv venv
 source venv/bin/activate
 ```
 
-### 3. Abhängigkeiten installieren
+#### 3. Abhängigkeiten installieren
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Datenbank initialisieren (optional mit Beispieldaten)
+#### 4. Datenbank initialisieren (optional mit Beispieldaten)
 ```bash
 python database/seed_data.py
 ```
 
-### 5. Anwendung starten
+#### 5. Lokales Modell vorab laden (optional)
+```bash
+ollama run llama3
+```
+
+#### 6. Anwendung starten
 ```bash
 streamlit run app.py
 ```
 
 Die Anwendung öffnet sich anschließend automatisch im Browser unter `http://localhost:8501`.
+
+</details>
 
 ---
 
@@ -136,6 +166,8 @@ Die Anwendung öffnet sich anschließend automatisch im Browser unter `http://lo
 
 ```text
 PropMAgent/
+├── PropMAgent_Starten.bat   # 1-Klick-Starter für Windows (richtet alles automatisch ein)
+├── start.bat                # Kurz-Alias für den 1-Klick-Start
 ├── app.py                   # Streamlit Hauptanwendung, UI-Komponenten & Routing
 ├── README.md                # Projektdokumentation
 ├── requirements.txt         # Python-Abhängigkeiten
