@@ -7,6 +7,12 @@
 ## 🌟 Kernmerkmale
 
 - 🔒 **100% Lokaler Datenschutz:** Alle Mieterdaten, Verträge, Liegenschaftsdaten und Betriebskostenabrechnungen werden in einer lokalen SQLite-Datenbank auf deinem Rechner gespeichert. Zu keinem Zeitpunkt verlassen Daten oder Dokumente dein Gerät.
+- 🏠 **Zentrale Startseite & Dashboard:**
+  - **Persönliche Begrüßung:** Herzliches Willkommen mit dem in den Einstellungen hinterlegten Namen des Vermieters oder der Hausverwaltung.
+  - **Live-Portfolio-Kennzahlen:** Liegenschaften, Wohneinheiten, Vermietungsquote, aktive Mieter sowie monatliche Soll-Mieteinnahmen auf einen Blick.
+  - **Schnellstart-Aktionen:** Direkteinstieg in KI-Schreiben, Liegenschaftsverwaltung, Betriebskostenabrechnung und Dokument-Import.
+  - **Liegenschafts-Portfolio:** Kompakte Übersicht aller Immobilien mit Baujahr, Heizungsart, Belegung und 1-Klick-Direktlink in die Detailansicht.
+  - **Klickbares Logo:** 1-Klick-Rückkehr zur Startseite durch Klick auf `🏢 PropMAgent` in der Seitenleiste.
 - 👤🏢 **Duale Betriebsmodi (Privater Vermieter & Hausverwaltung):**
   - **Privater Vermieter:** Briefe und Dokumente werden persönlich aus Vermietersicht formuliert (keine Hausverwaltungsfloskeln, Kennzeichnung mit *(Vermieter)*).
   - **Hausverwaltung:** Professioneller Agentur-/Verwaltungsauftritt mit Firmenname, Ansprechpartner und Geschäftskonto.
@@ -80,7 +86,7 @@
                    v                                             v
 +--------------------------------------+      +-------------------------------------+
 |        Lokale Datenspeicherung       |      |         Dokumentenausgabe           |
-|  - SQLite (data/propagent.db)        |      |  - ReportLab: DIN 5008 PDF          |
+|  - SQLite (data/prop_management.db)  |      |  - ReportLab: DIN 5008 PDF          |
 |  - Automatische Schema-Migrationen   |      |  - python-docx: Word / DOCX / ODT   |
 |  - Konfiguration (data/settings.json)|      +-------------------------------------+
 +--------------------------------------+

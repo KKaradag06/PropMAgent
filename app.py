@@ -319,7 +319,7 @@ def confirm_unsaved_dialog():
                     st.session_state["show_settings"] = False
                 elif pending["type"] == "settings":
                     st.session_state["show_settings"] = True
-                    st.session_state["previous_menu"] = pending.get("previous", "Liegenschaften & Mieter")
+                    st.session_state["previous_menu"] = pending.get("previous", "Startseite")
                 elif pending["type"] == "back_to_properties":
                     st.session_state["active_property_id"] = None
                     st.session_state["prop_detail_tab_idx"] = 0
@@ -342,7 +342,7 @@ def confirm_unsaved_dialog():
                     st.session_state["show_settings"] = False
                 elif pending["type"] == "settings":
                     st.session_state["show_settings"] = True
-                    st.session_state["previous_menu"] = pending.get("previous", "Liegenschaften & Mieter")
+                    st.session_state["previous_menu"] = pending.get("previous", "Startseite")
                 elif pending["type"] == "back_to_properties":
                     st.session_state["active_property_id"] = None
                     st.session_state["prop_detail_tab_idx"] = 0
@@ -356,7 +356,7 @@ def confirm_unsaved_dialog():
         if st.button("Weiter bearbeiten", use_container_width=True, icon=":material/edit:"):
             st.session_state["show_unsaved_dialog"] = False
             st.session_state.pop("pending_nav", None)
-            st.session_state["sidebar_nav_selection"] = st.session_state.get("current_active_menu", "KI-Assistent & Schriftverkehr")
+            st.session_state["sidebar_nav_selection"] = st.session_state.get("current_active_menu", "Startseite")
             st.rerun()
 
 # Flash-Toast anzeigen falls vorhanden
@@ -603,25 +603,70 @@ st.markdown("""
             color: #bfdbfe !important;
         }
     }
+    /* Sidebar Brand Button als klickbare Überschrift */
+    div[data-testid="stSidebar"] div.stButton:first-of-type button {
+        background: transparent !important;
+        border: none !important;
+        padding: 0.1rem 0 !important;
+        box-shadow: none !important;
+        text-align: left !important;
+        justify-content: flex-start !important;
+        cursor: pointer !important;
+        transition: transform 0.15s ease, opacity 0.15s ease !important;
+    }
+    div[data-testid="stSidebar"] div.stButton:first-of-type button p {
+        font-size: 1.65rem !important;
+        font-weight: 800 !important;
+        color: #0f172a !important;
+        letter-spacing: -0.02em !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    div[data-testid="stSidebar"] div.stButton:first-of-type button:hover {
+        background: transparent !important;
+        transform: translateX(2px) !important;
+    }
+    div[data-testid="stSidebar"] div.stButton:first-of-type button:hover p {
+        color: #2563eb !important;
+    }
+    @media (prefers-color-scheme: dark) {
+        div[data-testid="stSidebar"] div.stButton:first-of-type button p {
+            color: #f8fafc !important;
+        }
+        div[data-testid="stSidebar"] div.stButton:first-of-type button:hover p {
+            color: #60a5fa !important;
+        }
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # Sidebar
 with st.sidebar:
-    st.title("🏢 PropMAgent")
-    st.caption("Lokaler KI-Immobilienassistent")
-    st.markdown("---")
-    
     has_unsaved_lm = has_unsaved_lm_changes()
     has_unsaved_set = has_unsaved_settings_changes()
     has_any_unsaved = has_unsaved_lm or has_unsaved_set
 
+    if st.button("🏢 PropMAgent", key="btn_sidebar_brand_home", help="Zur Startseite", use_container_width=True):
+        if has_any_unsaved:
+            st.session_state["pending_nav"] = {"type": "menu", "target": "Startseite"}
+            st.session_state["show_unsaved_dialog"] = True
+            st.session_state["sidebar_nav_selection"] = st.session_state["current_active_menu"]
+            st.rerun()
+        else:
+            st.session_state["current_active_menu"] = "Startseite"
+            st.session_state["sidebar_nav_selection"] = "Startseite"
+            st.session_state["show_settings"] = False
+            st.session_state["doc_import_active"] = False
+            st.rerun()
+    st.caption("Lokaler KI-Immobilienassistent")
+    st.markdown("---")
+
     if "current_active_menu" not in st.session_state:
-        st.session_state["current_active_menu"] = "KI-Assistent & Schriftverkehr"
+        st.session_state["current_active_menu"] = "Startseite"
     if "sidebar_nav_selection" not in st.session_state:
         st.session_state["sidebar_nav_selection"] = st.session_state["current_active_menu"]
 
-    options_list = ["KI-Assistent & Schriftverkehr", "Liegenschaften & Mieter", "Betriebskosten & Finanzen"]
+    options_list = ["Startseite", "KI-Assistent & Schriftverkehr", "Liegenschaften & Mieter", "Betriebskosten & Finanzen"]
     try:
         def_idx = options_list.index(st.session_state["sidebar_nav_selection"])
     except ValueError:
@@ -629,6 +674,7 @@ with st.sidebar:
 
     def nav_format_func(x):
         icons = {
+            "Startseite": "🏠  Startseite",
             "KI-Assistent & Schriftverkehr": "🤖  KI-Assistent & Schriftverkehr",
             "Liegenschaften & Mieter": "🏢  Liegenschaften & Mieter",
             "Betriebskosten & Finanzen": "📊  Betriebskosten & Finanzen"
@@ -642,10 +688,9 @@ with st.sidebar:
         "Navigation",
         options=options_list,
         index=def_idx,
-        captions=["Briefe, Vorlagen & KI-Chat", "Objekte, Einheiten & Mietverträge", "Kostenaufstellung & Abrechnungen"],
+        captions=["Übersicht & Schnellstart", "Briefe, Vorlagen & KI-Chat", "Objekte, Einheiten & Mietverträge", "Kostenaufstellung & Abrechnungen"],
         format_func=nav_format_func,
-        label_visibility="collapsed",
-        key="main_sidebar_radio"
+        label_visibility="collapsed"
     )
 
     if selected_menu != st.session_state["current_active_menu"]:
@@ -712,7 +757,7 @@ def render_settings_page():
                 st.session_state.show_settings = False
                 st.rerun()
     with col_back_info:
-        prev_m = st.session_state.get("previous_menu", "Hauptansicht")
+        prev_m = st.session_state.get("previous_menu", "Startseite")
         st.caption(f"Zurück zu: **{prev_m}**")
 
     st.header("Einstellungen")
@@ -1500,6 +1545,208 @@ def render_document_import_view():
             st.session_state["doc_import_target_prop_id"] = None
             st.rerun()
 
+def render_home_page():
+    """Rendert die Startseite von PropMAgent mit Begrüßung, Live-Kennzahlen, Schnellstart-Aktionen und Liegenschafts-Übersicht."""
+    def nav_to(target_menu: str, extra: dict = None):
+        st.session_state["current_active_menu"] = target_menu
+        st.session_state["sidebar_nav_selection"] = target_menu
+        st.session_state["show_settings"] = False
+        if extra:
+            for k, v in extra.items():
+                st.session_state[k] = v
+        st.rerun()
+
+    current_settings = get_all_settings()
+    is_private = current_settings.get("landlord_type", "private") == "private"
+    raw_name = current_settings.get("landlord_name", "").strip()
+    contact_person = current_settings.get("landlord_contact_person", "").strip()
+
+    if is_private:
+        user_display = raw_name if raw_name else "Vermieter"
+    else:
+        user_display = contact_person if contact_person else (raw_name if raw_name else "Hausverwaltung")
+
+    # 1. Header mit Begrüßung und Einstellungen-Button
+    col_hdr_main, col_hdr_gear = st.columns([0.84, 0.16])
+    with col_hdr_main:
+        st.title(f"👋 Hallo, {user_display}!")
+        if is_private:
+            st.write("Willkommen in **PropMAgent** – deiner privaten, 100% lokalen Immobilienverwaltung. Hier behältst du den vollen Überblick über deine Liegenschaften, Mieter und Finanzen.")
+        else:
+            firm = f" ({raw_name})" if raw_name else ""
+            st.write(f"Willkommen im **PropMAgent** Verwaltungs-Dashboard{firm}. Alle Liegenschaften, Einheiten, Mieter und Finanzen auf einen Blick.")
+    with col_hdr_gear:
+        st.write("")
+        gear_lbl_h = f"Einstellungen{' 🔴' if has_unsaved_settings_changes() else ''}"
+        if st.button(gear_lbl_h, icon=":material/settings:", key="btn_gear_home", use_container_width=True, help="Einstellungen, Vermieterdaten & Modell öffnen"):
+            if has_any_unsaved_changes():
+                st.session_state["pending_nav"] = {"type": "settings", "previous": "Startseite"}
+                st.session_state["show_unsaved_dialog"] = True
+                st.rerun()
+            else:
+                st.session_state["previous_menu"] = "Startseite"
+                st.session_state["show_settings"] = True
+                st.rerun()
+
+    st.markdown("---")
+
+    # 2. Live-Daten abfragen
+    all_props = get_all_properties()
+    all_tenants = get_all_tenants()
+    all_units = get_all_units()
+
+    total_props = len(all_props)
+    total_units = len(all_units)
+    active_tenants = [t for t in all_tenants if t.get("is_active", 1)]
+    total_active_tenants = len(active_tenants)
+
+    all_unit_ids = {u["unit_id"] for u in all_units}
+    occupied_unit_ids = {t["unit_id"] for t in active_tenants if t.get("unit_id")}
+    occupied_count = len(occupied_unit_ids.intersection(all_unit_ids))
+    free_units_count = max(0, total_units - occupied_count)
+    occupancy_pct = (occupied_count / total_units * 100.0) if total_units > 0 else 0.0
+
+    total_area = sum(float(p.get("total_area_sqm") or 0.0) for p in all_props)
+    total_cold = sum(float(t.get("cold_rent") or 0.0) for t in active_tenants)
+    total_nk = sum(float(t.get("utility_advance") or 0.0) for t in active_tenants)
+    total_monthly = total_cold + total_nk
+
+    # 3. Live-Kennzahlen (4 Metric-Cards)
+    st.markdown("##### 📊 Portfolio-Kennzahlen auf einen Blick")
+    m1, m2, m3, m4 = st.columns(4)
+    with m1:
+        st.metric(
+            label="Liegenschaften",
+            value=f"{total_props}",
+            delta=f"{total_area:.0f} m² Gesamtfläche" if total_area > 0 else None,
+            delta_color="off"
+        )
+    with m2:
+        st.metric(
+            label="Wohneinheiten",
+            value=f"{total_units}",
+            delta=f"{occupancy_pct:.0f}% vermietet" if total_units > 0 else None,
+            delta_color="normal" if occupancy_pct >= 90 else "off"
+        )
+    with m3:
+        st.metric(
+            label="Aktive Mieter",
+            value=f"{total_active_tenants}",
+            delta=f"{free_units_count} Einheiten frei" if free_units_count > 0 else ("Vollvermietung 🎉" if total_units > 0 else None),
+            delta_color="normal" if free_units_count == 0 and total_units > 0 else "off"
+        )
+    with m4:
+        eur_monthly = f"{total_monthly:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
+        eur_cold = f"{total_cold:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
+        st.metric(
+            label="Monatliche Soll-Miete",
+            value=eur_monthly,
+            delta=f"davon {eur_cold} Kalt",
+            delta_color="off"
+        )
+
+    st.markdown("---")
+
+    # 4. Schnellstart-Aktionen
+    st.markdown("##### ⚡ Schnellstart & Aktionen")
+    st.caption("Wähle direkt eine Aktion aus, um in den jeweiligen Bereich zu springen:")
+
+    a1, a2, a3, a4 = st.columns(4, gap="medium")
+    with a1:
+        with st.container(border=True):
+            st.markdown("###### 🤖 KI-Schreiben")
+            st.write("Mieterhöhung (§ 558 BGB), Fristsetzung, Mahnung oder Rundschreiben mit lokaler KI erstellen.")
+            if st.button("Schreiben verfassen ➔", key="home_btn_goto_ai", type="primary", use_container_width=True):
+                nav_to("KI-Assistent & Schriftverkehr")
+
+    with a2:
+        with st.container(border=True):
+            st.markdown("###### 🏢 Liegenschaften")
+            st.write("Objekte, Einheiten und Mietverträge verwalten, neue Mieter erfassen oder Daten bearbeiten.")
+            if st.button("Zu Liegenschaften ➔", key="home_btn_goto_lm", use_container_width=True):
+                nav_to("Liegenschaften & Mieter")
+
+    with a3:
+        with st.container(border=True):
+            st.markdown("###### 📊 Betriebskosten")
+            st.write("Kostenbelege erfassen, Abrechnungsjahre vergleichen und 1-Klick-PDF-Abrechnungen erstellen.")
+            if st.button("Zu Abrechnungen ➔", key="home_btn_goto_fin", use_container_width=True):
+                nav_to("Betriebskosten & Finanzen")
+
+    with a4:
+        with st.container(border=True):
+            st.markdown("###### 📄 Dokument-Import")
+            st.write("Zensus 2022 Erfassungsbögen, Teilungserklärungen oder Wohnungslisten als PDF lokal analysieren.")
+            if st.button("PDF importieren ➔", key="home_btn_goto_import", use_container_width=True):
+                nav_to("Liegenschaften & Mieter", {
+                    "doc_import_active": True,
+                    "doc_import_parsed_data": None,
+                    "doc_import_raw_text": None,
+                    "doc_import_target_prop_id": None
+                })
+
+    st.markdown("---")
+
+    # 5. Liegenschaften-Portfolio
+    st.markdown("##### 🏢 Deine Liegenschaften im Überblick")
+    if not all_props:
+        st.info("ℹ️ Es sind noch keine Liegenschaften angelegt. Klicke auf 'Zu Liegenschaften' oder starte einen 'PDF-Import', um dein erstes Objekt anzulegen.")
+    else:
+        p_cols = st.columns(2, gap="medium")
+        for idx, p in enumerate(all_props):
+            with p_cols[idx % 2]:
+                with st.container(border=True):
+                    alias = p.get("alias")
+                    display_title = alias if alias else p["name"]
+                    st.markdown(f"#### 🏢 {display_title}")
+                    if alias and alias != p["name"]:
+                        st.caption(f"Offizielle Bezeichnung: *{p['name']}*")
+                    st.markdown(f"📍 **Adresse:** {p['street']}, {p['zip_code']} {p['city']}")
+
+                    col_pi1, col_pi2 = st.columns(2)
+                    with col_pi1:
+                        st.markdown(f"🚪 **Einheiten:** {p.get('unit_count', 0)}")
+                        st.markdown(f"👥 **Mieter:** {p.get('tenant_count', 0)}")
+                        st.markdown(f"📐 **Wohnfläche:** {p.get('total_area_sqm', 0):.1f} m²")
+                    with col_pi2:
+                        by = p.get("construction_year") or "–"
+                        ht = p.get("heating_type") or "–"
+                        es = p.get("energy_source") or ""
+                        ht_text = f"{ht} ({es})" if es and ht != "–" else ht
+                        st.markdown(f"🏗️ **Baujahr:** {by}")
+                        st.markdown(f"🔥 **Heizung:** {ht_text}")
+                        occ_str = f"{p.get('tenant_count', 0)}/{p.get('unit_count', 0)} belegt" if p.get('unit_count', 0) > 0 else "–"
+                        st.markdown(f"📌 **Status:** {occ_str}")
+
+                    st.write("")
+                    if st.button("Liegenschaft & Mieter öffnen ➔", key=f"home_open_prop_{p['property_id']}", use_container_width=True):
+                        nav_to("Liegenschaften & Mieter", {
+                            "active_property_id": p["property_id"],
+                            "prop_detail_tab_idx": 0
+                        })
+
+    st.markdown("---")
+
+    # 6. System- & Datenschutz-Ampel
+    st.markdown("##### 🛡️ Lokale Systembereitschaft & Datenschutz")
+    model_name = current_settings.get("ollama_model", "llama3")
+    ollama_url_cfg = current_settings.get("ollama_url", "http://localhost:11434")
+    status_ollama = get_cached_ollama_status(ollama_url_cfg)
+
+    sys_col1, sys_col2, sys_col3 = st.columns(3)
+    with sys_col1:
+        st.markdown("**Lokale SQLite-Datenbank:**")
+        st.markdown("🟢 Bereit & verbunden (`prop_management.db`)")
+    with sys_col2:
+        st.markdown(f"**KI-Sprachmodell ({model_name}):**")
+        if status_ollama["online"]:
+            st.markdown(f"🟢 Verbunden via Ollama (`{ollama_url_cfg}`)")
+        else:
+            st.markdown("⚪ Offline (Vorlagen-Fallback aktiv)")
+    with sys_col3:
+        st.markdown("**Datenschutz & Privatsphäre:**")
+        st.markdown("🔒 100% lokal auf deinem PC – keine Cloud")
+
 # Prüfen ob Dialog für ungespeicherte Änderungen geöffnet werden muss
 if st.session_state.get("show_unsaved_dialog", False):
     confirm_unsaved_dialog()
@@ -1509,10 +1756,14 @@ if "last_sidebar_menu" not in st.session_state:
     st.session_state["last_sidebar_menu"] = menu
 if st.session_state["last_sidebar_menu"] != menu:
     st.session_state["show_settings"] = False
+    if menu != "Liegenschaften & Mieter":
+        st.session_state["doc_import_active"] = False
     st.session_state["last_sidebar_menu"] = menu
 
 if st.session_state.get("show_settings", False):
     render_settings_page()
+elif menu == "Startseite":
+    render_home_page()
 elif menu == "KI-Assistent & Schriftverkehr":
     should_scroll = st.session_state.get("scroll_to_chat", False)
     if should_scroll:
