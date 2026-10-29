@@ -1982,15 +1982,26 @@ elif menu == "KI-Assistent & Schriftverkehr":
                 with c_btn:
                     st.write("")
                     st.write("")
-                    if st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_ma"):
-                        if tgt_t:
-                            adj_raw = adj_val.strip()
-                            if adj_raw and not any(sym in adj_raw.lower() for sym in ["%", "€", "euro"]):
-                                adj_raw = f"{adj_raw} €"
-                            action_word = "Mieterhöhung" if adj_mode == "Erhöhung" else "Mietsenkung"
-                            st.session_state.quick_prompt = f"Schreibe eine {action_word} an {tgt_t} um {adj_raw} zum rechtlich nächstmöglichen Zeitpunkt"
-                            st.session_state.scroll_to_chat = True
-                            st.rerun()
+                    btn_ma_clicked = st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_ma")
+
+                chk_confirm_ma = st.checkbox(
+                    "Zustimmungserklärung als 2. Seite beifügen (zum Unterschreiben & Zurücksenden durch den Mieter)",
+                    value=(adj_mode == "Erhöhung"),
+                    key="chk_ma_confirm",
+                    help="Erstellt im PDF und DOCX eine offizielle 2. Seite mit tabellarischer Mietaufstellung und Unterschriftsfeldern zur rechtssicheren Zustimmung nach § 558b BGB."
+                )
+
+                if btn_ma_clicked:
+                    if tgt_t:
+                        adj_raw = adj_val.strip()
+                        if adj_raw and not any(sym in adj_raw.lower() for sym in ["%", "€", "euro"]):
+                            adj_raw = f"{adj_raw} €"
+                        action_word = "Mieterhöhung" if adj_mode == "Erhöhung" else "Mietsenkung"
+                        confirm_suffix = " mit rechtssicherer Zustimmungserklärung als 2. Seite zum Zurücksenden" if chk_confirm_ma else ""
+                        st.session_state.include_confirmation_page = chk_confirm_ma
+                        st.session_state.quick_prompt = f"Schreibe eine {action_word} an {tgt_t} um {adj_raw} zum rechtlich nächstmöglichen Zeitpunkt{confirm_suffix}"
+                        st.session_state.scroll_to_chat = True
+                        st.rerun()
 
             elif sub_action == "Zahlungserinnerung":
                 c_amt, c_due, c_btn = st.columns([2.5, 2.5, 1.5])
@@ -2070,15 +2081,26 @@ elif menu == "KI-Assistent & Schriftverkehr":
                 with c_btn:
                     st.write("")
                     st.write("")
-                    if st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_nka"):
-                        if tgt_t:
-                            adj_raw = adj_val.strip()
-                            if adj_raw and not any(sym in adj_raw.lower() for sym in ["%", "€", "euro"]):
-                                adj_raw = f"{adj_raw} €"
-                            action_word = "Nebenkostenerhöhung" if adj_mode == "Erhöhung" else "Nebenkostensenkung"
-                            st.session_state.quick_prompt = f"Schreibe eine {action_word} an {tgt_t} um {adj_raw} zum rechtlich nächstmöglichen Zeitpunkt"
-                            st.session_state.scroll_to_chat = True
-                            st.rerun()
+                    btn_nka_clicked = st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_nka")
+
+                chk_confirm_nka = st.checkbox(
+                    "Einverständnis- / Empfangsbestätigung als 2. Seite beifügen (zum Unterschreiben & Zurücksenden)",
+                    value=False,
+                    key="chk_nka_confirm",
+                    help="Fügt eine offizielle 2. Seite bei, mit welcher der Mieter die Anpassung zur Kenntnis nimmt und bestätigt."
+                )
+
+                if btn_nka_clicked:
+                    if tgt_t:
+                        adj_raw = adj_val.strip()
+                        if adj_raw and not any(sym in adj_raw.lower() for sym in ["%", "€", "euro"]):
+                            adj_raw = f"{adj_raw} €"
+                        action_word = "Nebenkostenerhöhung" if adj_mode == "Erhöhung" else "Nebenkostensenkung"
+                        confirm_suffix = " mit Bestätigungsschreiben als 2. Seite zum Zurücksenden" if chk_confirm_nka else ""
+                        st.session_state.include_confirmation_page = chk_confirm_nka
+                        st.session_state.quick_prompt = f"Schreibe eine {action_word} an {tgt_t} um {adj_raw} zum rechtlich nächstmöglichen Zeitpunkt{confirm_suffix}"
+                        st.session_state.scroll_to_chat = True
+                        st.rerun()
 
             elif sub_action == "Nebenkostenabrechnung":
                 c_yr, c_btn = st.columns([4.5, 1.5])
@@ -2138,12 +2160,23 @@ elif menu == "KI-Assistent & Schriftverkehr":
                 with c_btn:
                     st.write("")
                     st.write("")
-                    if st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_bv"):
-                        if tgt_t:
-                            detail = f" mit folgendem Hinweis: {bank_txt.strip()}" if bank_txt.strip() else ""
-                            st.session_state.quick_prompt = f"Schreibe eine Mitteilung an {tgt_t} über die Aktualisierung der Bankverbindung für Mietzahlungen{detail}"
-                            st.session_state.scroll_to_chat = True
-                            st.rerun()
+                    btn_bv_clicked = st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_bv")
+
+                chk_confirm_bv = st.checkbox(
+                    "Empfangsbestätigung als 2. Seite beifügen (zum Unterschreiben & Zurücksenden)",
+                    value=False,
+                    key="chk_bv_confirm",
+                    help="Fügt eine 2. Seite bei, auf welcher der Mieter den Erhalt der neuen Bankverbindung mit Datum und Unterschrift bestätigt."
+                )
+
+                if btn_bv_clicked:
+                    if tgt_t:
+                        detail = f" mit folgendem Hinweis: {bank_txt.strip()}" if bank_txt.strip() else ""
+                        confirm_suffix = " mit Empfangsbestätigung als 2. Seite zum Zurücksenden" if chk_confirm_bv else ""
+                        st.session_state.include_confirmation_page = chk_confirm_bv
+                        st.session_state.quick_prompt = f"Schreibe eine Mitteilung an {tgt_t} über die Aktualisierung der Bankverbindung für Mietzahlungen{detail}{confirm_suffix}"
+                        st.session_state.scroll_to_chat = True
+                        st.rerun()
 
             elif sub_action == "Hausordnung / Rundschreiben":
                 c_inp, c_btn = st.columns([4.5, 1.5])
@@ -2245,7 +2278,8 @@ elif menu == "KI-Assistent & Schriftverkehr":
         # Agent ausführen
         with st.chat_message("assistant"):
             with st.spinner("Analysiere Anfrage und erstelle Dokument..."):
-                response = handle_agent_request(prompt, model=model_name)
+                inc_conf = st.session_state.pop("include_confirmation_page", None)
+                response = handle_agent_request(prompt, model=model_name, include_confirmation_page=inc_conf)
                 st.markdown(response["message"])
 
                 assistant_msg = {"role": "assistant", "content": response["message"]}

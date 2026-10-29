@@ -989,7 +989,11 @@ def parse_user_intent_ollama(user_prompt: str, model: str = "llama3") -> Dict[st
         
     return {"action": "general_chat", "answer": "Wie kann ich dir bei deinen Mietern, Objekten, Abrechnungen oder Briefen helfen?"}
 
-def handle_agent_request(user_prompt: str, model: str = "llama3") -> Dict[str, Any]:
+def handle_agent_request(
+    user_prompt: str,
+    model: str = "llama3",
+    include_confirmation_page: Optional[bool] = None
+) -> Dict[str, Any]:
     """Zentrale Verarbeitungslogik für Benutzeranfragen."""
     intent = parse_user_intent_ollama(user_prompt, model=model) or {}
     action = intent.get("action", "general_chat")
@@ -1161,6 +1165,111 @@ def handle_agent_request(user_prompt: str, model: str = "llama3") -> Dict[str, A
         subject = letter_content.get("subject", default_subject)
         letter_text = letter_content.get("body", "")
 
+        # Prüfen, ob Zustimmungserklärung / Bestätigungsschreiben als 2. Seite erwünscht ist
+        wants_confirmation = False
+        if include_confirmation_page is True:
+            wants_confirmation = True
+        elif include_confirmation_page is False:
+            wants_confirmation = False
+        else:
+            confirm_keywords = [
+                "zustimmung", "bestätigung", "bestaetigung", "2. seite", "zweite seite",
+                "rückantwort", "rueckantwort", "rückmeldebogen", "rueckmeldebogen",
+                "antwortschreiben", "zustimmungserklärung", "zustimmungserklaerung",
+                "einverständnis", "einverstaendnis", "beiblatt", "rückseite"
+            ]
+            prompt_l = user_prompt.lower()
+            if any(k in prompt_l for k in confirm_keywords):
+                wants_confirmation = True
+
+        confirmation_data = None
+        if wants_confirmation and not is_all_tenants:
+            import calendar
+            prompt_lower = user_prompt.lower()
+            is_rent_inc = (
+                "mieterhöhung" in prompt_lower or "mieterhoehung" in prompt_lower or
+                "mietanpassung" in prompt_lower or "§ 558" in prompt_lower or
+                ("erhöhung" in prompt_lower and "miete" in prompt_lower) or
+                ("erhöh" in prompt_lower and not "nebenkosten" in prompt_lower and not "betriebskosten" in prompt_lower)
+            )
+            is_nk_adj = (
+                "nebenkosten" in prompt_lower or "betriebskosten" in prompt_lower or
+                "§ 560" in prompt_lower
+            )
+
+            cur_cold = float(db_tenant.get("cold_rent", 900.0)) if db_tenant else 900.0
+            cur_nk = float(db_tenant.get("utility_advance", 220.0)) if db_tenant else 220.0
+            unit_str = db_tenant.get("unit_number", "Wohneinheit") if db_tenant else "Wohneinheit"
+            prop_display = db_tenant.get("property_name", prop_name) if db_tenant else prop_name
+
+            pct_match = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:%|prozent)", prompt_lower)
+            is_percentage = bool(pct_match)
+            pct_val = float(pct_match.group(1).replace(",", ".")) if pct_match else 0.0
+
+            amt_match = re.search(r"(?:rückstand|rueckstand|betrag|von|um|über|ueber)?\s*(\d+(?:[.,]\d+)?)\s*(?:€|euro|\beuro\b)?", prompt_lower)
+            euro_val = float(amt_match.group(1).replace(",", ".")) if amt_match and not is_percentage else 0.0
+
+            # Fristen nach BGB
+            now_dt = datetime.now()
+            m_end = (now_dt.month + 2 - 1) % 12 + 1
+            y_end = now_dt.year + (now_dt.month + 2 - 1) // 12
+            last_day = calendar.monthrange(y_end, m_end)[1]
+            deadline_date_str = f"{last_day:02d}.{m_end:02d}.{y_end}"
+            m_eff = (now_dt.month + 3 - 1) % 12 + 1
+            y_eff = now_dt.year + (now_dt.month + 3 - 1) // 12
+            effective_cold_str = f"01.{m_eff:02d}.{y_eff}"
+            effective_nk_str = f"01.{m_end:02d}.{y_end}"
+
+            calc_ma_diff = round(cur_cold * (pct_val / 100.0), 2) if is_percentage else (euro_val if euro_val > 0 else 50.0)
+            calc_ma_new_cold = cur_cold + calc_ma_diff
+            calc_ma_new_total = calc_ma_new_cold + cur_nk
+
+            is_nk_inc = "erhöhung" in prompt_lower or "erhoehung" in prompt_lower
+            calc_nk_diff = round(cur_nk * (pct_val / 100.0), 2) if is_percentage else (euro_val if euro_val > 0 else 20.0)
+            calc_new_nk = (cur_nk + calc_nk_diff) if is_nk_inc else max(0.0, cur_nk - calc_nk_diff)
+            calc_nk_new_total = cur_cold + calc_new_nk
+
+            tenant_names = []
+            if db_tenant:
+                from agent.tools import parse_co_tenants
+                primary = f"{db_tenant.get('first_name', '')} {db_tenant.get('last_name', '')}".strip()
+                if primary:
+                    tenant_names.append(primary)
+                co_list = parse_co_tenants(db_tenant.get("co_tenants"))
+                for c in co_list:
+                    c_name = f"{c.get('first_name', '')} {c.get('last_name', '')}".strip()
+                    if c_name and c_name not in tenant_names:
+                        tenant_names.append(c_name)
+            if not tenant_names:
+                tenant_names = [full_name.split("\n")[0].strip()]
+
+            eff_date_city = (settings.get("letter_city") or settings.get("landlord_city") or "Berlin").strip()
+            today_date_str = datetime.now().strftime("%d.%m.%Y")
+            clean_subj = re.sub(r"^(?:Betreff|Subject)\s*:\s*", "", subject, flags=re.IGNORECASE).strip()
+
+            confirmation_data = {
+                "enabled": True,
+                "type": "mieterhoehung" if is_rent_inc else ("nebenkosten" if is_nk_adj else "allgemein"),
+                "property_name": prop_display,
+                "unit_number": unit_str,
+                "tenant_names": tenant_names,
+                "letter_date": today_date_str,
+                "effective_date": effective_cold_str if is_rent_inc else effective_nk_str,
+                "deadline_date": deadline_date_str if is_rent_inc else "",
+                "old_cold": cur_cold,
+                "diff_cold": calc_ma_diff,
+                "new_cold": calc_ma_new_cold,
+                "old_nk": cur_nk,
+                "diff_nk": calc_nk_diff,
+                "new_nk": calc_new_nk if is_nk_adj else cur_nk,
+                "old_total": cur_cold + cur_nk,
+                "new_total": calc_ma_new_total if is_rent_inc else (calc_nk_new_total if is_nk_adj else cur_cold + cur_nk),
+                "subject": clean_subj,
+                "is_percentage": is_percentage,
+                "pct_val": pct_val,
+                "is_nk_inc": is_nk_inc if is_nk_adj else False
+            }
+
         # 1. PDF nach DIN 5008:2020 Form B generieren
         pdf_path = generate_formal_letter_pdf(
             recipient_name=full_name,
@@ -1173,7 +1282,8 @@ def handle_agent_request(user_prompt: str, model: str = "llama3") -> Dict[str, A
             sender_city=sender_city,
             sender_phone=sender_phone,
             sender_email=sender_email,
-            sign_person=sign_person
+            sign_person=sign_person,
+            confirmation_data=confirmation_data
         )
 
         # 2. Word / DOCX (auch für LibreOffice ODT) nach DIN 5008:2020 Form B generieren
@@ -1188,7 +1298,8 @@ def handle_agent_request(user_prompt: str, model: str = "llama3") -> Dict[str, A
             sender_city=sender_city,
             sender_phone=sender_phone,
             sender_email=sender_email,
-            sign_person=sign_person
+            sign_person=sign_person,
+            confirmation_data=confirmation_data
         )
 
         clean_subj = re.sub(r"^(?:Betreff|Subject)\s*:\s*", "", subject, flags=re.IGNORECASE).strip()
@@ -1196,6 +1307,15 @@ def handle_agent_request(user_prompt: str, model: str = "llama3") -> Dict[str, A
 
         eff_date_city = (settings.get("letter_city") or settings.get("landlord_city") or "Berlin").strip()
         today_date_str = datetime.now().strftime("%d.%m.%Y")
+
+        conf_msg = ""
+        if confirmation_data:
+            if confirmation_data["type"] == "mieterhoehung":
+                conf_msg = "\n\n📋 *Inklusive rechtssicherer **Zustimmungserklärung zur Mieterhöhung als 2. Seite** (mit tabellarischer Mietaufstellung, Wirksamkeitsdatum und Unterschriftsfeld für alle Mietvertragsparteien zum Unterschreiben & Zurücksenden).*"
+            elif confirmation_data["type"] == "nebenkosten":
+                conf_msg = "\n\n📋 *Inklusive rechtssicherer **Einverständniserklärung zur Nebenkostenanpassung als 2. Seite** zum Unterschreiben & Zurücksenden durch den Mieter.*"
+            else:
+                conf_msg = "\n\n📋 *Inklusive passender **Empfangs- und Kenntnisnahmebestätigung als 2. Seite** zum Unterschreiben & Zurücksenden durch den Mieter.*"
 
         msg = (
             f"📄 **Offizielles Schreiben für {full_name} erstellt! (DIN 5008 Form B)**\n\n"
@@ -1206,6 +1326,7 @@ def handle_agent_request(user_prompt: str, model: str = "llama3") -> Dict[str, A
             f"{clean_body}\n\n"
             f"Mit freundlichen Grüßen\n\n\n"
             f"**{sender_name}**" + (" *(Vermieter)*\n\n" if is_private else "\n\n") +
+            f"{conf_msg}\n\n"
             f"---\n\n"
             f"📥 *Das Dokument wurde nach der offiziellen **DIN 5008:2020 (Form B)** als druckfertiges **PDF** und editierbares **Word / DOCX** (kompatibel mit MS Word & LibreOffice) generiert.*"
         )
