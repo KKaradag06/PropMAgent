@@ -36,7 +36,10 @@ DEFAULT_SETTINGS: Dict[str, str] = {
     "default_closing_phrase": "Mit freundlichen Grüßen",
     "default_signature_title": "Ihr Vermieter",
     "letter_city": "",
-    "letter_include_bank_details": "true"
+    "letter_include_bank_details": "true",
+
+    # Status der Beispieldaten-Initialisierung ("true" sobald einmal initialisiert)
+    "initial_demo_seeded": "false"
 }
 
 def init_settings() -> None:
@@ -114,6 +117,8 @@ def reset_settings_to_default() -> None:
         conn.execute("DELETE FROM settings;")
         for k, v in DEFAULT_SETTINGS.items():
             conn.execute("INSERT INTO settings (key, value) VALUES (?, ?);", (k, str(v)))
+        # initial_demo_seeded auf 'true' belassen, damit Beispieldaten nicht ungefragt wiederkehren
+        conn.execute("UPDATE settings SET value = 'true' WHERE key = 'initial_demo_seeded';")
         conn.commit()
 
 def check_ollama_status(url: Optional[str] = None) -> Dict[str, Any]:

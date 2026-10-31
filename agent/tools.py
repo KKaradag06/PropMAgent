@@ -147,6 +147,7 @@ def update_property(
 def delete_property(property_id: int) -> bool:
     """Löscht eine Liegenschaft mitsamt aller zugehörigen Einheiten, Mieter, Zahlungen und Betriebskosten."""
     from database.db import execute_db
+    p_id = int(property_id)
     # 1. Zahlungen löschen
     execute_db("""
         DELETE FROM payments 
@@ -155,18 +156,18 @@ def delete_property(property_id: int) -> bool:
             JOIN units u ON t.unit_id = u.id 
             WHERE u.property_id = ?
         );
-    """, (property_id,))
+    """, (p_id,))
     # 2. Mieter löschen
     execute_db("""
         DELETE FROM tenants 
         WHERE unit_id IN (SELECT id FROM units WHERE property_id = ?);
-    """, (property_id,))
+    """, (p_id,))
     # 3. Einheiten löschen
-    execute_db("DELETE FROM units WHERE property_id = ?;", (property_id,))
+    execute_db("DELETE FROM units WHERE property_id = ?;", (p_id,))
     # 4. Betriebskosten löschen
-    execute_db("DELETE FROM expenses WHERE property_id = ?;", (property_id,))
+    execute_db("DELETE FROM expenses WHERE property_id = ?;", (p_id,))
     # 5. Liegenschaft löschen
-    execute_db("DELETE FROM properties WHERE id = ?;", (property_id,))
+    execute_db("DELETE FROM properties WHERE id = ?;", (p_id,))
     return True
 
 def add_property(

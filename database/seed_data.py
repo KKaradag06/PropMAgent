@@ -6,13 +6,26 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from database.db import init_db, execute_db, query_db
 
-def seed():
+def seed(force: bool = False):
     init_db()
-    
+    from database.settings import get_setting, set_setting
+    already_seeded = get_setting("initial_demo_seeded", "false") == "true"
+    if not force and already_seeded:
+        print("Demo-Daten wurden bereits initialisiert. Überspringe Seed.")
+        return
+
     # Prüfen, ob bereits Objekte existieren
     existing = query_db("SELECT COUNT(*) as count FROM properties;")
-    if existing and existing[0]["count"] > 0:
+    if not force and existing and existing[0]["count"] > 0:
+        set_setting("initial_demo_seeded", "true")
         print("Datenbank enthält bereits Daten. Überspringe Seed.")
+        return
+
+    # Falls Wohnanlage Sonnenhang bereits existiert, nicht doppelt anlegen
+    sonnenhang_exists = query_db("SELECT id FROM properties WHERE name = ?;", ("Wohnanlage Sonnenhang",))
+    if sonnenhang_exists:
+        set_setting("initial_demo_seeded", "true")
+        print("Wohnanlage Sonnenhang existiert bereits. Überspringe Seed.")
         return
 
     print("Initialisiere Beispieldaten für PropMAgent...")
@@ -117,6 +130,7 @@ def seed():
             VALUES (?, ?, ?, ?, ?, ?, ?);
         """, (prop_id, 2026, cat, desc, amount, key, r_date))
 
+    set_setting("initial_demo_seeded", "true")
     print("Erfolgreich Beispieldaten für 'Wohnanlage Sonnenhang' eingefügt!")
 
 if __name__ == "__main__":

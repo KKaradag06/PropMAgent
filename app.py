@@ -63,9 +63,13 @@ def get_cached_ollama_status(url: str):
     """Gibt den Status des Ollama-Servers mit kurzem Cache (10s) zurück."""
     return check_ollama_status(url)
 
+from database.settings import get_setting, set_setting
+already_seeded = get_setting("initial_demo_seeded", "false") == "true"
 existing_props = query_db("SELECT COUNT(*) as cnt FROM properties;")
-if not existing_props or existing_props[0]["cnt"] == 0:
+if not already_seeded and (not existing_props or existing_props[0]["cnt"] == 0):
     seed()
+elif existing_props and existing_props[0]["cnt"] > 0 and not already_seeded:
+    set_setting("initial_demo_seeded", "true")
 
 # -------------------------------------------------------------
 # 1. Flash-Meldungen & Toast-Feedback System
@@ -1284,15 +1288,29 @@ def render_settings_page():
                                     st.error(f"Wiederherstellung fehlgeschlagen: {rest_msg}")
 
         st.markdown("---")
-        st.markdown("##### 🔄 Auf Werkseinstellungen zurücksetzen")
-        st.write("Setzt ausschließlich die Einstellungen (Vermieterdaten, Fristen, Modell) auf die Standardwerte zurück. Deine Mieterdaten und Buchungen bleiben unberührt.")
-        
-        with st.popover("Werkseinstellungen wiederherstellen...", use_container_width=True):
-            st.warning("Möchtest du alle Einstellungen wirklich auf die Standardwerte zurücksetzen?")
-            if st.button("Ja, Einstellungen zurücksetzen", type="primary", use_container_width=True):
-                reset_settings_to_default()
-                set_flash_message("Einstellungen wurden auf Standardwerte zurückgesetzt.", icon="ℹ️")
-                st.rerun()
+        st.markdown("##### 🔄 Werkseinstellungen & Beispieldaten")
+        col_rst_set, col_rst_seed = st.columns(2, gap="medium")
+        with col_rst_set:
+            with st.container(border=True):
+                st.markdown("###### Einstellungen zurücksetzen")
+                st.write("Setzt ausschließlich die Einstellungen (Vermieterdaten, Fristen, Modell) auf die Standardwerte zurück. Deine Liegenschaften, Mieter und Buchungen bleiben unberührt.")
+                with st.popover("Werkseinstellungen wiederherstellen...", use_container_width=True):
+                    st.warning("Möchtest du alle Einstellungen wirklich auf die Standardwerte zurücksetzen?")
+                    if st.button("Ja, Einstellungen zurücksetzen", type="primary", use_container_width=True, key="btn_reset_settings"):
+                        reset_settings_to_default()
+                        set_flash_message("Einstellungen wurden auf Standardwerte zurückgesetzt.", icon="ℹ️")
+                        st.rerun()
+
+        with col_rst_seed:
+            with st.container(border=True):
+                st.markdown("###### Beispieldaten laden")
+                st.write("Lädt die Beispieldaten (*Wohnanlage Sonnenhang* mit 3 Einheiten, Mietern und Betriebskosten) zu Testzwecken neu in das System.")
+                with st.popover("Beispieldaten laden...", use_container_width=True):
+                    st.info("Hierdurch wird die Beispiel-Liegenschaft 'Wohnanlage Sonnenhang' mit allen Einheiten und Mustermietern neu angelegt.")
+                    if st.button("Ja, Beispieldaten jetzt laden", type="primary", use_container_width=True, key="btn_load_demo_seed"):
+                        seed(force=True)
+                        set_flash_message("Beispieldaten 'Wohnanlage Sonnenhang' erfolgreich geladen!", icon="🏢")
+                        st.rerun()
 
 def render_document_import_view():
     """Rendert die Ansicht zur Dokumentenanalyse & automatischen Liegenschafts-/Einheitenerfassung."""
@@ -1904,310 +1922,311 @@ elif menu == "KI-Assistent & Schriftverkehr":
 
         # 1. Auswahl der Liegenschaft und des Mieters
         all_props = get_all_properties()
-        prop_options = {}
-        for p in all_props:
-            alias_txt = f" ({p['alias']})" if p.get("alias") else ""
-            p_lbl = f"{p['name']}{alias_txt} · {p['street']}, {p['city']}"
-            prop_options[p_lbl] = p["property_id"]
-        if not prop_options:
-            prop_options = {"Standard-Liegenschaft": 1}
+        if not all_props:
+            st.info("ℹ️ Es sind aktuell keine Liegenschaften erfasst. Lege zuerst unter **'Liegenschaften & Mieter'** eine Liegenschaft an, um Vorlagen und Schnellaktionen für deine Mieter zu nutzen.")
+        else:
+            prop_options = {}
+            for p in all_props:
+                alias_txt = f" ({p['alias']})" if p.get("alias") else ""
+                p_lbl = f"{p['name']}{alias_txt} · {p['street']}, {p['city']}"
+                prop_options[p_lbl] = p["property_id"]
 
-        col_prop_sel, col_tenant_sel = st.columns([1.6, 2.4])
-        with col_prop_sel:
-            selected_prop_label = st.selectbox(
-                "Liegenschaft auswählen",
-                options=list(prop_options.keys()),
-                key="qa_prop_selector"
-            )
-            selected_prop_id = prop_options[selected_prop_label]
+            col_prop_sel, col_tenant_sel = st.columns([1.6, 2.4])
+            with col_prop_sel:
+                selected_prop_label = st.selectbox(
+                    "Liegenschaft auswählen",
+                    options=list(prop_options.keys()),
+                    key="qa_prop_selector"
+                )
+                selected_prop_id = prop_options[selected_prop_label]
 
-        # Name der gewählten Liegenschaft für treffende Prompts
-        sel_prop_obj = next((p for p in all_props if p["property_id"] == selected_prop_id), None)
-        sel_prop_name = sel_prop_obj["name"] if sel_prop_obj else "der Liegenschaft"
+            # Name der gewählten Liegenschaft für treffende Prompts
+            sel_prop_obj = next((p for p in all_props if p["property_id"] == selected_prop_id), None)
+            sel_prop_name = sel_prop_obj["name"] if sel_prop_obj else "der Liegenschaft"
 
-        prop_tenants = get_tenants_by_property(selected_prop_id)
-        tenant_options = {}
+            prop_tenants = get_tenants_by_property(selected_prop_id)
+            tenant_options = {}
 
-        # Option "Alle Mieter" IMMER ganz oben an Position 1
-        all_tenants_label = "👥 Alle Mieterinnen & Mieter der Liegenschaft"
-        tenant_options[all_tenants_label] = {
-            "type": "all",
-            "name": f"alle Mieterinnen und Mieter der Liegenschaft {sel_prop_name}",
-            "display": f"Alle Mieterinnen und Mieter ({sel_prop_name})"
-        }
-
-        for t in prop_tenants:
-            unit_str = f" · {t['unit_number']}" if t.get("unit_number") else ""
-            sal_str = t.get("salutation", "Herr")
-            t_lbl = f"{t['first_name']} {t['last_name']} ({sal_str}{unit_str})"
-            tenant_options[t_lbl] = {
-                "type": "single",
-                "name": f"{t['first_name']} {t['last_name']}",
-                "display": f"{t.get('salutation', 'Herr')} {t['first_name']} {t['last_name']}"
+            # Option "Alle Mieter" IMMER ganz oben an Position 1
+            all_tenants_label = "👥 Alle Mieterinnen & Mieter der Liegenschaft"
+            tenant_options[all_tenants_label] = {
+                "type": "all",
+                "name": f"alle Mieterinnen und Mieter der Liegenschaft {sel_prop_name}",
+                "display": f"Alle Mieterinnen und Mieter ({sel_prop_name})"
             }
 
-        with col_tenant_sel:
-            selected_tenant_label = st.selectbox(
-                "Empfänger auswählen (Alle Mieter oder Suche nach Name)",
-                options=list(tenant_options.keys()),
-                key="qa_tenant_selector"
-            )
-            tgt_entry = tenant_options.get(selected_tenant_label, {})
-            tgt_t = tgt_entry.get("name", "")
-            is_all = tgt_entry.get("type") == "all"
+            for t in prop_tenants:
+                unit_str = f" · {t['unit_number']}" if t.get("unit_number") else ""
+                sal_str = t.get("salutation", "Herr")
+                t_lbl = f"{t['first_name']} {t['last_name']} ({sal_str}{unit_str})"
+                tenant_options[t_lbl] = {
+                    "type": "single",
+                    "name": f"{t['first_name']} {t['last_name']}",
+                    "display": f"{t.get('salutation', 'Herr')} {t['first_name']} {t['last_name']}"
+                }
 
-        category = st.segmented_control(
-            "Bereich",
-            options=["Miete", "Nebenkosten", "Andere"],
-            default="Miete",
-            key="action_category_selector",
-            label_visibility="collapsed"
-        )
+            with col_tenant_sel:
+                selected_tenant_label = st.selectbox(
+                    "Empfänger auswählen (Alle Mieter oder Suche nach Name)",
+                    options=list(tenant_options.keys()),
+                    key="qa_tenant_selector"
+                )
+                tgt_entry = tenant_options.get(selected_tenant_label, {})
+                tgt_t = tgt_entry.get("name", "")
+                is_all = tgt_entry.get("type") == "all"
 
-        if category == "Miete":
-            sub_action = st.pills(
-                "Miet-Aktionen",
-                options=["Mietanpassung", "Zahlungserinnerung", "Mietbescheinigung", "Abmahnung Zahlungsverzug"],
-                default="Mietanpassung",
-                key="sub_action_miete",
+            category = st.segmented_control(
+                "Bereich",
+                options=["Miete", "Nebenkosten", "Andere"],
+                default="Miete",
+                key="action_category_selector",
                 label_visibility="collapsed"
             )
 
-            if sub_action == "Mietanpassung":
-                c_mode, c_inp, c_btn = st.columns([2, 3, 1.5])
-                with c_mode:
-                    adj_mode = st.segmented_control("Art", options=["Erhöhung", "Senkung"], default="Erhöhung", key="act_mode_ma")
-                with c_inp:
-                    adj_val = st.text_input("Anpassung (z. B. 15% oder 50 €)", value="15%", key="act_adj_ma")
-                with c_btn:
-                    st.write("")
-                    st.write("")
-                    btn_ma_clicked = st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_ma")
-
-                chk_confirm_ma = st.checkbox(
-                    "Zustimmungserklärung als 2. Seite beifügen (zum Unterschreiben & Zurücksenden durch den Mieter)",
-                    value=(adj_mode == "Erhöhung"),
-                    key="chk_ma_confirm",
-                    help="Erstellt im PDF und DOCX eine offizielle 2. Seite mit tabellarischer Mietaufstellung und Unterschriftsfeldern zur rechtssicheren Zustimmung nach § 558b BGB."
+            if category == "Miete":
+                sub_action = st.pills(
+                    "Miet-Aktionen",
+                    options=["Mietanpassung", "Zahlungserinnerung", "Mietbescheinigung", "Abmahnung Zahlungsverzug"],
+                    default="Mietanpassung",
+                    key="sub_action_miete",
+                    label_visibility="collapsed"
                 )
 
-                if btn_ma_clicked:
-                    if tgt_t:
-                        adj_raw = adj_val.strip()
-                        if adj_raw and not any(sym in adj_raw.lower() for sym in ["%", "€", "euro"]):
-                            adj_raw = f"{adj_raw} €"
-                        action_word = "Mieterhöhung" if adj_mode == "Erhöhung" else "Mietsenkung"
-                        confirm_suffix = " mit rechtssicherer Zustimmungserklärung als 2. Seite zum Zurücksenden" if chk_confirm_ma else ""
-                        st.session_state.include_confirmation_page = chk_confirm_ma
-                        st.session_state.quick_prompt = f"Schreibe eine {action_word} an {tgt_t} um {adj_raw} zum rechtlich nächstmöglichen Zeitpunkt{confirm_suffix}"
-                        st.session_state.scroll_to_chat = True
-                        st.rerun()
+                if sub_action == "Mietanpassung":
+                    c_mode, c_inp, c_btn = st.columns([2, 3, 1.5])
+                    with c_mode:
+                        adj_mode = st.segmented_control("Art", options=["Erhöhung", "Senkung"], default="Erhöhung", key="act_mode_ma")
+                    with c_inp:
+                        adj_val = st.text_input("Anpassung (z. B. 15% oder 50 €)", value="15%", key="act_adj_ma")
+                    with c_btn:
+                        st.write("")
+                        st.write("")
+                        btn_ma_clicked = st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_ma")
 
-            elif sub_action == "Zahlungserinnerung":
-                c_amt, c_due, c_btn = st.columns([2.5, 2.5, 1.5])
-                with c_amt:
-                    debt_amt = st.text_input("Rückstand", value="80 €", placeholder="z. B. 80 €", key="act_debt_amt")
-                with c_due:
-                    due_date = st.text_input("Zahlungsfrist", value="7 Tage", placeholder="z. B. 7 Tage", key="act_due_date")
-                with c_btn:
-                    st.write("")
-                    st.write("")
-                    if st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_ze"):
+                    chk_confirm_ma = st.checkbox(
+                        "Zustimmungserklärung als 2. Seite beifügen (zum Unterschreiben & Zurücksenden durch den Mieter)",
+                        value=(adj_mode == "Erhöhung"),
+                        key="chk_ma_confirm",
+                        help="Erstellt im PDF und DOCX eine offizielle 2. Seite mit tabellarischer Mietaufstellung und Unterschriftsfeldern zur rechtssicheren Zustimmung nach § 558b BGB."
+                    )
+
+                    if btn_ma_clicked:
                         if tgt_t:
-                            amt_raw = debt_amt.strip()
-                            if amt_raw and not any(sym in amt_raw.lower() for sym in ["€", "euro"]):
-                                amt_raw = f"{amt_raw}€"
-                            due_raw = due_date.strip()
-                            if due_raw and not any(unit in due_raw.lower() for unit in ["tag", "woche", "monat"]):
-                                due_raw = f"{due_raw} Tagen"
-                            elif "tage" in due_raw.lower() and not "tagen" in due_raw.lower():
-                                due_raw = re.sub(r"\btage\b", "Tagen", due_raw, flags=re.I)
-
-                            parts = []
-                            if amt_raw:
-                                parts.append(f"einem Rückstand von {amt_raw}")
-                            if due_raw:
-                                parts.append(f"einer Frist von {due_raw}")
-
-                            detail_str = f" mit {' und '.join(parts)}" if parts else ""
-                            st.session_state.quick_prompt = f"Schreibe eine Zahlungserinnerung an {tgt_t}{detail_str}"
+                            adj_raw = adj_val.strip()
+                            if adj_raw and not any(sym in adj_raw.lower() for sym in ["%", "€", "euro"]):
+                                adj_raw = f"{adj_raw} €"
+                            action_word = "Mieterhöhung" if adj_mode == "Erhöhung" else "Mietsenkung"
+                            confirm_suffix = " mit rechtssicherer Zustimmungserklärung als 2. Seite zum Zurücksenden" if chk_confirm_ma else ""
+                            st.session_state.include_confirmation_page = chk_confirm_ma
+                            st.session_state.quick_prompt = f"Schreibe eine {action_word} an {tgt_t} um {adj_raw} zum rechtlich nächstmöglichen Zeitpunkt{confirm_suffix}"
                             st.session_state.scroll_to_chat = True
                             st.rerun()
 
-            elif sub_action == "Mietbescheinigung":
-                c_txt, c_btn = st.columns([4.5, 1.5])
-                with c_txt:
-                    display_target = f"für **{sel_prop_name}**" if is_all else f"für **{tgt_t or 'den ausgewählten Mieter'}**"
-                    st.write(f"Erstellt eine offizielle Miet- und Mietschuldenfreiheitsbescheinigung {display_target}.")
-                with c_btn:
-                    if st.button("Bescheinigung erstellen", type="primary", use_container_width=True, key="btn_mb"):
-                        if tgt_t:
-                            if is_all:
-                                st.session_state.quick_prompt = f"Erstelle eine Vorlage für eine Miet- und Mietschuldenfreiheitsbescheinigung für die Liegenschaft {sel_prop_name}"
-                            else:
-                                st.session_state.quick_prompt = f"Erstelle eine Miet- und Mietschuldenfreiheitsbescheinigung für {tgt_t}"
-                            st.session_state.scroll_to_chat = True
-                            st.rerun()
+                elif sub_action == "Zahlungserinnerung":
+                    c_amt, c_due, c_btn = st.columns([2.5, 2.5, 1.5])
+                    with c_amt:
+                        debt_amt = st.text_input("Rückstand", value="80 €", placeholder="z. B. 80 €", key="act_debt_amt")
+                    with c_due:
+                        due_date = st.text_input("Zahlungsfrist", value="7 Tage", placeholder="z. B. 7 Tage", key="act_due_date")
+                    with c_btn:
+                        st.write("")
+                        st.write("")
+                        if st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_ze"):
+                            if tgt_t:
+                                amt_raw = debt_amt.strip()
+                                if amt_raw and not any(sym in amt_raw.lower() for sym in ["€", "euro"]):
+                                    amt_raw = f"{amt_raw}€"
+                                due_raw = due_date.strip()
+                                if due_raw and not any(unit in due_raw.lower() for unit in ["tag", "woche", "monat"]):
+                                    due_raw = f"{due_raw} Tagen"
+                                elif "tage" in due_raw.lower() and not "tagen" in due_raw.lower():
+                                    due_raw = re.sub(r"\btage\b", "Tagen", due_raw, flags=re.I)
 
-            elif sub_action == "Abmahnung Zahlungsverzug":
-                c_reason, c_btn = st.columns([4.5, 1.5])
-                with c_reason:
-                    reason_txt = st.text_input("Rückstand / Details", placeholder="z. B. Miete für September und Oktober 2026", key="act_az_reason")
-                with c_btn:
-                    st.write("")
-                    st.write("")
-                    if st.button("Abmahnung erstellen", type="primary", use_container_width=True, key="btn_az"):
-                        if tgt_t:
-                            detail = f" bezüglich: {reason_txt.strip()}" if reason_txt.strip() else " wegen Zahlungsverzugs der monatlichen Mietzahlungen"
-                            st.session_state.quick_prompt = f"Schreibe eine formelle Abmahnung an {tgt_t}{detail}"
-                            st.session_state.scroll_to_chat = True
-                            st.rerun()
+                                parts = []
+                                if amt_raw:
+                                    parts.append(f"einem Rückstand von {amt_raw}")
+                                if due_raw:
+                                    parts.append(f"einer Frist von {due_raw}")
 
-        elif category == "Nebenkosten":
-            sub_action = st.pills(
-                "Nebenkosten-Aktionen",
-                options=["Nebenkostenanpassung", "Nebenkostenabrechnung", "Kostenübersicht"],
-                default="Nebenkostenanpassung",
-                key="sub_action_nk",
-                label_visibility="collapsed"
-            )
+                                detail_str = f" mit {' und '.join(parts)}" if parts else ""
+                                st.session_state.quick_prompt = f"Schreibe eine Zahlungserinnerung an {tgt_t}{detail_str}"
+                                st.session_state.scroll_to_chat = True
+                                st.rerun()
 
-            if sub_action == "Nebenkostenanpassung":
-                c_mode, c_inp, c_btn = st.columns([2, 3, 1.5])
-                with c_mode:
-                    adj_mode = st.segmented_control("Art", options=["Erhöhung", "Senkung"], default="Senkung", key="act_mode_nka")
-                with c_inp:
-                    adj_val = st.text_input("Anpassung (z. B. 20 € oder 10%)", value="20 €", key="act_adj_nka")
-                with c_btn:
-                    st.write("")
-                    st.write("")
-                    btn_nka_clicked = st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_nka")
+                elif sub_action == "Mietbescheinigung":
+                    c_txt, c_btn = st.columns([4.5, 1.5])
+                    with c_txt:
+                        display_target = f"für **{sel_prop_name}**" if is_all else f"für **{tgt_t or 'den ausgewählten Mieter'}**"
+                        st.write(f"Erstellt eine offizielle Miet- und Mietschuldenfreiheitsbescheinigung {display_target}.")
+                    with c_btn:
+                        if st.button("Bescheinigung erstellen", type="primary", use_container_width=True, key="btn_mb"):
+                            if tgt_t:
+                                if is_all:
+                                    st.session_state.quick_prompt = f"Erstelle eine Vorlage für eine Miet- und Mietschuldenfreiheitsbescheinigung für die Liegenschaft {sel_prop_name}"
+                                else:
+                                    st.session_state.quick_prompt = f"Erstelle eine Miet- und Mietschuldenfreiheitsbescheinigung für {tgt_t}"
+                                st.session_state.scroll_to_chat = True
+                                st.rerun()
 
-                chk_confirm_nka = st.checkbox(
-                    "Einverständnis- / Empfangsbestätigung als 2. Seite beifügen (zum Unterschreiben & Zurücksenden)",
-                    value=False,
-                    key="chk_nka_confirm",
-                    help="Fügt eine offizielle 2. Seite bei, mit welcher der Mieter die Anpassung zur Kenntnis nimmt und bestätigt."
-                )
-
-                if btn_nka_clicked:
-                    if tgt_t:
-                        adj_raw = adj_val.strip()
-                        if adj_raw and not any(sym in adj_raw.lower() for sym in ["%", "€", "euro"]):
-                            adj_raw = f"{adj_raw} €"
-                        action_word = "Nebenkostenerhöhung" if adj_mode == "Erhöhung" else "Nebenkostensenkung"
-                        confirm_suffix = " mit Bestätigungsschreiben als 2. Seite zum Zurücksenden" if chk_confirm_nka else ""
-                        st.session_state.include_confirmation_page = chk_confirm_nka
-                        st.session_state.quick_prompt = f"Schreibe eine {action_word} an {tgt_t} um {adj_raw} zum rechtlich nächstmöglichen Zeitpunkt{confirm_suffix}"
-                        st.session_state.scroll_to_chat = True
-                        st.rerun()
-
-            elif sub_action == "Nebenkostenabrechnung":
-                c_yr, c_btn = st.columns([4.5, 1.5])
-                with c_yr:
-                    yr_val = st.number_input("Abrechnungsjahr", min_value=2020, max_value=2030, value=2025, step=1, key="act_yr_nka")
-                with c_btn:
-                    st.write("")
-                    st.write("")
-                    if st.button("Abrechnung generieren", type="primary", use_container_width=True, key="btn_nka_bill"):
-                        if tgt_t:
-                            if is_all:
-                                st.session_state.quick_prompt = f"Erstelle die Nebenkostenabrechnung {int(yr_val)} für alle Mieter der Liegenschaft {sel_prop_name}"
-                            else:
-                                st.session_state.quick_prompt = f"Erstelle die Nebenkostenabrechnung {int(yr_val)} für {tgt_t}"
-                            st.session_state.scroll_to_chat = True
-                            st.rerun()
-
-            elif sub_action == "Kostenübersicht":
-                c_yr, c_btn = st.columns([4.5, 1.5])
-                with c_yr:
-                    yr_val = st.number_input("Abrechnungsjahr", min_value=2020, max_value=2030, value=2025, step=1, key="act_yr_ko")
-                with c_btn:
-                    st.write("")
-                    st.write("")
-                    if st.button("Kosten anzeigen", type="primary", use_container_width=True, key="btn_ko"):
-                        st.session_state.quick_prompt = f"Zeige alle Betriebskosten für das Abrechnungsjahr {int(yr_val)} für die Liegenschaft {sel_prop_name}"
-                        st.session_state.scroll_to_chat = True
-                        st.rerun()
-
-        elif category == "Andere":
-            sub_action = st.pills(
-                "Weitere Aktionen",
-                options=["Handwerker / Wartung", "Bankverbindung mitteilen", "Hausordnung / Rundschreiben", "Mieterübersicht"],
-                default="Handwerker / Wartung",
-                key="sub_action_andere",
-                label_visibility="collapsed"
-            )
-
-            if sub_action == "Handwerker / Wartung":
-                c_inp, c_btn = st.columns([4.5, 1.5])
-                with c_inp:
-                    work_txt = st.text_input("Grund & Termin", placeholder="z. B. Heizungswartung am 15.11. von 9-12 Uhr", key="act_hw_work")
-                with c_btn:
-                    st.write("")
-                    st.write("")
-                    if st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_hw"):
-                        if tgt_t:
-                            detail = f" bezüglich: {work_txt.strip()}" if work_txt.strip() else " bezüglich anstehender Wartungs- und Handwerkerarbeiten"
-                            st.session_state.quick_prompt = f"Schreibe ein Ankündigungsschreiben an {tgt_t}{detail}"
-                            st.session_state.scroll_to_chat = True
-                            st.rerun()
-
-            elif sub_action == "Bankverbindung mitteilen":
-                c_inp, c_btn = st.columns([4.5, 1.5])
-                with c_inp:
-                    bank_txt = st.text_input("Hinweis / Bankdaten (optional)", placeholder="z. B. Neues Mietkonto ab dem 01.11.2026", key="act_bv_hint")
-                with c_btn:
-                    st.write("")
-                    st.write("")
-                    btn_bv_clicked = st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_bv")
-
-                chk_confirm_bv = st.checkbox(
-                    "Empfangsbestätigung als 2. Seite beifügen (zum Unterschreiben & Zurücksenden)",
-                    value=False,
-                    key="chk_bv_confirm",
-                    help="Fügt eine 2. Seite bei, auf welcher der Mieter den Erhalt der neuen Bankverbindung mit Datum und Unterschrift bestätigt."
-                )
-
-                if btn_bv_clicked:
-                    if tgt_t:
-                        detail = f" mit folgendem Hinweis: {bank_txt.strip()}" if bank_txt.strip() else ""
-                        confirm_suffix = " mit Empfangsbestätigung als 2. Seite zum Zurücksenden" if chk_confirm_bv else ""
-                        st.session_state.include_confirmation_page = chk_confirm_bv
-                        st.session_state.quick_prompt = f"Schreibe eine Mitteilung an {tgt_t} über die Aktualisierung der Bankverbindung für Mietzahlungen{detail}{confirm_suffix}"
-                        st.session_state.scroll_to_chat = True
-                        st.rerun()
-
-            elif sub_action == "Hausordnung / Rundschreiben":
-                c_inp, c_btn = st.columns([4.5, 1.5])
-                with c_inp:
-                    incident_label = "Thema / Hinweis" if is_all else "Pflichtverletzung"
-                    incident_placeholder = "z. B. Ruhezeiten ab 22:00 Uhr und Treppenhaus freihalten" if is_all else "z. B. wiederholte Ruhestörung nach 22:00 Uhr"
-                    incident_txt = st.text_input(incident_label, placeholder=incident_placeholder, key="act_ah_incident")
-                with c_btn:
-                    st.write("")
-                    st.write("")
-                    action_label = "Rundschreiben erstellen" if is_all else "Abmahnung erstellen"
-                    if st.button(action_label, type="primary", use_container_width=True, key="btn_ah"):
-                        if tgt_t:
-                            if is_all:
-                                detail = f" bezüglich der Einhaltung der Hausordnung: {incident_txt.strip()}" if incident_txt.strip() else " bezüglich der Einhaltung der Hausordnung und des Hausfriedens"
-                                st.session_state.quick_prompt = f"Schreibe ein Rundschreiben an {tgt_t}{detail}"
-                            else:
-                                detail = f" wegen vertragswidrigen Verhaltens: {incident_txt.strip()}" if incident_txt.strip() else " wegen wiederholter Verletzung der Hausordnung"
+                elif sub_action == "Abmahnung Zahlungsverzug":
+                    c_reason, c_btn = st.columns([4.5, 1.5])
+                    with c_reason:
+                        reason_txt = st.text_input("Rückstand / Details", placeholder="z. B. Miete für September und Oktober 2026", key="act_az_reason")
+                    with c_btn:
+                        st.write("")
+                        st.write("")
+                        if st.button("Abmahnung erstellen", type="primary", use_container_width=True, key="btn_az"):
+                            if tgt_t:
+                                detail = f" bezüglich: {reason_txt.strip()}" if reason_txt.strip() else " wegen Zahlungsverzugs der monatlichen Mietzahlungen"
                                 st.session_state.quick_prompt = f"Schreibe eine formelle Abmahnung an {tgt_t}{detail}"
+                                st.session_state.scroll_to_chat = True
+                                st.rerun()
+
+            elif category == "Nebenkosten":
+                sub_action = st.pills(
+                    "Nebenkosten-Aktionen",
+                    options=["Nebenkostenanpassung", "Nebenkostenabrechnung", "Kostenübersicht"],
+                    default="Nebenkostenanpassung",
+                    key="sub_action_nk",
+                    label_visibility="collapsed"
+                )
+
+                if sub_action == "Nebenkostenanpassung":
+                    c_mode, c_inp, c_btn = st.columns([2, 3, 1.5])
+                    with c_mode:
+                        adj_mode = st.segmented_control("Art", options=["Erhöhung", "Senkung"], default="Senkung", key="act_mode_nka")
+                    with c_inp:
+                        adj_val = st.text_input("Anpassung (z. B. 20 € oder 10%)", value="20 €", key="act_adj_nka")
+                    with c_btn:
+                        st.write("")
+                        st.write("")
+                        btn_nka_clicked = st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_nka")
+
+                    chk_confirm_nka = st.checkbox(
+                        "Einverständnis- / Empfangsbestätigung als 2. Seite beifügen (zum Unterschreiben & Zurücksenden)",
+                        value=False,
+                        key="chk_nka_confirm",
+                        help="Fügt eine offizielle 2. Seite bei, mit welcher der Mieter die Anpassung zur Kenntnis nimmt und bestätigt."
+                    )
+
+                    if btn_nka_clicked:
+                        if tgt_t:
+                            adj_raw = adj_val.strip()
+                            if adj_raw and not any(sym in adj_raw.lower() for sym in ["%", "€", "euro"]):
+                                adj_raw = f"{adj_raw} €"
+                            action_word = "Nebenkostenerhöhung" if adj_mode == "Erhöhung" else "Nebenkostensenkung"
+                            confirm_suffix = " mit Bestätigungsschreiben als 2. Seite zum Zurücksenden" if chk_confirm_nka else ""
+                            st.session_state.include_confirmation_page = chk_confirm_nka
+                            st.session_state.quick_prompt = f"Schreibe eine {action_word} an {tgt_t} um {adj_raw} zum rechtlich nächstmöglichen Zeitpunkt{confirm_suffix}"
                             st.session_state.scroll_to_chat = True
                             st.rerun()
 
-            elif sub_action == "Mieterübersicht":
-                c_txt, c_btn = st.columns([4.5, 1.5])
-                with c_txt:
-                    st.write(f"Ruft die vollständige Übersicht aller aktuell aktiven Mieter der Liegenschaft **{sel_prop_name}** ab.")
-                with c_btn:
-                    if st.button("Mieterliste anzeigen", type="primary", use_container_width=True, key="btn_ml"):
-                        st.session_state.quick_prompt = f"Welche Mieter wohnen aktuell in der Liegenschaft {sel_prop_name}?"
-                        st.session_state.scroll_to_chat = True
-                        st.rerun()
+                elif sub_action == "Nebenkostenabrechnung":
+                    c_yr, c_btn = st.columns([4.5, 1.5])
+                    with c_yr:
+                        yr_val = st.number_input("Abrechnungsjahr", min_value=2020, max_value=2030, value=2025, step=1, key="act_yr_nka")
+                    with c_btn:
+                        st.write("")
+                        st.write("")
+                        if st.button("Abrechnung generieren", type="primary", use_container_width=True, key="btn_nka_bill"):
+                            if tgt_t:
+                                if is_all:
+                                    st.session_state.quick_prompt = f"Erstelle die Nebenkostenabrechnung {int(yr_val)} für alle Mieter der Liegenschaft {sel_prop_name}"
+                                else:
+                                    st.session_state.quick_prompt = f"Erstelle die Nebenkostenabrechnung {int(yr_val)} für {tgt_t}"
+                                st.session_state.scroll_to_chat = True
+                                st.rerun()
+
+                elif sub_action == "Kostenübersicht":
+                    c_yr, c_btn = st.columns([4.5, 1.5])
+                    with c_yr:
+                        yr_val = st.number_input("Abrechnungsjahr", min_value=2020, max_value=2030, value=2025, step=1, key="act_yr_ko")
+                    with c_btn:
+                        st.write("")
+                        st.write("")
+                        if st.button("Kosten anzeigen", type="primary", use_container_width=True, key="btn_ko"):
+                            st.session_state.quick_prompt = f"Zeige alle Betriebskosten für das Abrechnungsjahr {int(yr_val)} für die Liegenschaft {sel_prop_name}"
+                            st.session_state.scroll_to_chat = True
+                            st.rerun()
+
+            elif category == "Andere":
+                sub_action = st.pills(
+                    "Weitere Aktionen",
+                    options=["Handwerker / Wartung", "Bankverbindung mitteilen", "Hausordnung / Rundschreiben", "Mieterübersicht"],
+                    default="Handwerker / Wartung",
+                    key="sub_action_andere",
+                    label_visibility="collapsed"
+                )
+
+                if sub_action == "Handwerker / Wartung":
+                    c_inp, c_btn = st.columns([4.5, 1.5])
+                    with c_inp:
+                        work_txt = st.text_input("Grund & Termin", placeholder="z. B. Heizungswartung am 15.11. von 9-12 Uhr", key="act_hw_work")
+                    with c_btn:
+                        st.write("")
+                        st.write("")
+                        if st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_hw"):
+                            if tgt_t:
+                                detail = f" bezüglich: {work_txt.strip()}" if work_txt.strip() else " bezüglich anstehender Wartungs- und Handwerkerarbeiten"
+                                st.session_state.quick_prompt = f"Schreibe ein Ankündigungsschreiben an {tgt_t}{detail}"
+                                st.session_state.scroll_to_chat = True
+                                st.rerun()
+
+                elif sub_action == "Bankverbindung mitteilen":
+                    c_inp, c_btn = st.columns([4.5, 1.5])
+                    with c_inp:
+                        bank_txt = st.text_input("Hinweis / Bankdaten (optional)", placeholder="z. B. Neues Mietkonto ab dem 01.11.2026", key="act_bv_hint")
+                    with c_btn:
+                        st.write("")
+                        st.write("")
+                        btn_bv_clicked = st.button("Brief erstellen", type="primary", use_container_width=True, key="btn_bv")
+
+                    chk_confirm_bv = st.checkbox(
+                        "Empfangsbestätigung als 2. Seite beifügen (zum Unterschreiben & Zurücksenden)",
+                        value=False,
+                        key="chk_bv_confirm",
+                        help="Fügt eine 2. Seite bei, auf welcher der Mieter den Erhalt der neuen Bankverbindung mit Datum und Unterschrift bestätigt."
+                    )
+
+                    if btn_bv_clicked:
+                        if tgt_t:
+                            detail = f" mit folgendem Hinweis: {bank_txt.strip()}" if bank_txt.strip() else ""
+                            confirm_suffix = " mit Empfangsbestätigung als 2. Seite zum Zurücksenden" if chk_confirm_bv else ""
+                            st.session_state.include_confirmation_page = chk_confirm_bv
+                            st.session_state.quick_prompt = f"Schreibe eine Mitteilung an {tgt_t} über die Aktualisierung der Bankverbindung für Mietzahlungen{detail}{confirm_suffix}"
+                            st.session_state.scroll_to_chat = True
+                            st.rerun()
+
+                elif sub_action == "Hausordnung / Rundschreiben":
+                    c_inp, c_btn = st.columns([4.5, 1.5])
+                    with c_inp:
+                        incident_label = "Thema / Hinweis" if is_all else "Pflichtverletzung"
+                        incident_placeholder = "z. B. Ruhezeiten ab 22:00 Uhr und Treppenhaus freihalten" if is_all else "z. B. wiederholte Ruhestörung nach 22:00 Uhr"
+                        incident_txt = st.text_input(incident_label, placeholder=incident_placeholder, key="act_ah_incident")
+                    with c_btn:
+                        st.write("")
+                        st.write("")
+                        action_label = "Rundschreiben erstellen" if is_all else "Abmahnung erstellen"
+                        if st.button(action_label, type="primary", use_container_width=True, key="btn_ah"):
+                            if tgt_t:
+                                if is_all:
+                                    detail = f" bezüglich der Einhaltung der Hausordnung: {incident_txt.strip()}" if incident_txt.strip() else " bezüglich der Einhaltung der Hausordnung und des Hausfriedens"
+                                    st.session_state.quick_prompt = f"Schreibe ein Rundschreiben an {tgt_t}{detail}"
+                                else:
+                                    detail = f" wegen vertragswidrigen Verhaltens: {incident_txt.strip()}" if incident_txt.strip() else " wegen wiederholter Verletzung der Hausordnung"
+                                    st.session_state.quick_prompt = f"Schreibe eine formelle Abmahnung an {tgt_t}{detail}"
+                                st.session_state.scroll_to_chat = True
+                                st.rerun()
+
+                elif sub_action == "Mieterübersicht":
+                    c_txt, c_btn = st.columns([4.5, 1.5])
+                    with c_txt:
+                        st.write(f"Ruft die vollständige Übersicht aller aktuell aktiven Mieter der Liegenschaft **{sel_prop_name}** ab.")
+                    with c_btn:
+                        if st.button("Mieterliste anzeigen", type="primary", use_container_width=True, key="btn_ml"):
+                            st.session_state.quick_prompt = f"Welche Mieter wohnen aktuell in der Liegenschaft {sel_prop_name}?"
+                            st.session_state.scroll_to_chat = True
+                            st.rerun()
 
     # Chat-Historie im Session-State
     if "messages" not in st.session_state:
@@ -2467,6 +2486,12 @@ elif menu == "Liegenschaften & Mieter":
                                 st.error(f"**Liegenschaft '{p['name']}' wirklich löschen?**\n\nAlle Einheiten, Mieter und Nebenkostenabrechnungen werden unwiderruflich gelöscht.")
                                 if st.button("Endgültig löschen", type="primary", key=f"del_prop_btn_{p['property_id']}", use_container_width=True):
                                     delete_property(p["property_id"])
+                                    if st.session_state.get("active_property_id") == p["property_id"]:
+                                        st.session_state["active_property_id"] = None
+                                    if st.session_state.get("active_finance_property_id") == p["property_id"]:
+                                        st.session_state["active_finance_property_id"] = None
+                                    for sk in ["qa_prop_selector", "qa_tenant_selector", "finance_property_selector"]:
+                                        st.session_state.pop(sk, None)
                                     set_flash_message(f"Liegenschaft '{p['name']}' wurde gelöscht.", icon="🗑️")
                                     st.rerun()
 
@@ -2916,6 +2941,10 @@ elif menu == "Liegenschaften & Mieter":
                     if st.button("Ja, Liegenschaft jetzt löschen", type="primary", key=f"btn_delete_prop_detail_{pid}", use_container_width=True):
                         delete_property(pid)
                         st.session_state["active_property_id"] = None
+                        if st.session_state.get("active_finance_property_id") == pid:
+                            st.session_state["active_finance_property_id"] = None
+                        for sk in ["qa_prop_selector", "qa_tenant_selector", "finance_property_selector"]:
+                            st.session_state.pop(sk, None)
                         set_flash_message(f"Liegenschaft '{prop['name']}' wurde gelöscht.", icon="🗑️")
                         st.rerun()
 
@@ -3279,68 +3308,71 @@ elif menu == "Betriebskosten & Finanzen":
         st.caption(f"Trage eine neue Ausgabe für das Abrechnungsjahr {selected_year} nach Maßgabe der Betriebskostenverordnung (BetrKV) ein.")
 
         all_props = query_db("SELECT id, name FROM properties ORDER BY name ASC;")
-        prop_options = {p["name"]: p["id"] for p in all_props} if all_props else {"Liegenschaft": 1}
+        if not all_props:
+            st.info("ℹ️ Es sind aktuell keine Liegenschaften vorhanden. Lege zuerst unter **'Liegenschaften & Mieter'** eine Liegenschaft an, um Betriebskosten buchen zu können.")
+        else:
+            prop_options = {p["name"]: p["id"] for p in all_props}
 
-        with st.form("form_add_new_expense", clear_on_submit=True):
-            col_aprop, col_ayr = st.columns([2, 1])
-            with col_aprop:
-                def_prop_idx = 0
-                if selected_property_id:
-                    for idx, (p_name, p_id) in enumerate(prop_options.items()):
-                        if p_id == selected_property_id:
-                            def_prop_idx = idx
-                            break
-                add_prop_label = st.selectbox("Liegenschaft", list(prop_options.keys()), index=def_prop_idx)
-                add_prop_id = prop_options[add_prop_label]
-            with col_ayr:
-                add_yr = st.number_input("Abrechnungsjahr", min_value=2020, max_value=2035, value=selected_year, step=1)
+            with st.form("form_add_new_expense", clear_on_submit=True):
+                col_aprop, col_ayr = st.columns([2, 1])
+                with col_aprop:
+                    def_prop_idx = 0
+                    if selected_property_id:
+                        for idx, (p_name, p_id) in enumerate(prop_options.items()):
+                            if p_id == selected_property_id:
+                                def_prop_idx = idx
+                                break
+                    add_prop_label = st.selectbox("Liegenschaft", list(prop_options.keys()), index=def_prop_idx)
+                    add_prop_id = prop_options[add_prop_label]
+                with col_ayr:
+                    add_yr = st.number_input("Abrechnungsjahr", min_value=2020, max_value=2035, value=selected_year, step=1)
 
-            col_acat, col_aamt = st.columns([2, 1])
-            with col_acat:
-                betrkv_standard = [
-                    "Grundsteuer", "Gebäudeversicherung", "Müllabfuhr", "Allgemeinstrom",
-                    "Schornsteinfeger / Wartung", "Hausmeister / Gartenpflege", "Wasser / Abwasser",
-                    "Straßenreinigung", "Aufzugswartung", "Kabelanschluss / TV", "Sonstige Betriebskosten"
-                ]
-                selected_cat_type = st.selectbox("Kostenart (BetrKV)", betrkv_standard + ["Eigene Kostenart eingeben..."])
-                if selected_cat_type == "Eigene Kostenart eingeben...":
-                    final_cat = st.text_input("Bezeichnung der Kostenart *", placeholder="z. B. Legionellenprüfung")
-                else:
-                    final_cat = selected_cat_type
-            with col_aamt:
-                add_amt = st.number_input("Rechnungsbetrag (€) *", min_value=0.01, value=100.0, step=10.0, format="%.2f")
+                col_acat, col_aamt = st.columns([2, 1])
+                with col_acat:
+                    betrkv_standard = [
+                        "Grundsteuer", "Gebäudeversicherung", "Müllabfuhr", "Allgemeinstrom",
+                        "Schornsteinfeger / Wartung", "Hausmeister / Gartenpflege", "Wasser / Abwasser",
+                        "Straßenreinigung", "Aufzugswartung", "Kabelanschluss / TV", "Sonstige Betriebskosten"
+                    ]
+                    selected_cat_type = st.selectbox("Kostenart (BetrKV)", betrkv_standard + ["Eigene Kostenart eingeben..."])
+                    if selected_cat_type == "Eigene Kostenart eingeben...":
+                        final_cat = st.text_input("Bezeichnung der Kostenart *", placeholder="z. B. Legionellenprüfung")
+                    else:
+                        final_cat = selected_cat_type
+                with col_aamt:
+                    add_amt = st.number_input("Rechnungsbetrag (€) *", min_value=0.01, value=100.0, step=10.0, format="%.2f")
 
-            col_adesc, col_akey, col_adate = st.columns([2, 1.5, 1])
-            with col_adesc:
-                add_desc = st.text_input("Details / Rechnungsnummer", placeholder="z. B. Jahresabrechnung BSR Beleg-Nr. 2026-44")
-            with col_akey:
-                key_dict = {
-                    "sqm": "Wohnfläche (nach m²)",
-                    "units": "Wohneinheiten (pro Einheit)",
-                    "direct": "Direkte Zuordnung"
-                }
-                add_key = st.selectbox("Umlageschlüssel", list(key_dict.keys()), format_func=lambda x: key_dict[x])
-            with col_adate:
-                try:
-                    default_date = date(int(add_yr), date.today().month, min(date.today().day, 28))
-                except Exception:
-                    default_date = date(int(add_yr), 1, 1)
-                add_date = st.date_input("Belegdatum", value=default_date)
+                col_adesc, col_akey, col_adate = st.columns([2, 1.5, 1])
+                with col_adesc:
+                    add_desc = st.text_input("Details / Rechnungsnummer", placeholder="z. B. Jahresabrechnung BSR Beleg-Nr. 2026-44")
+                with col_akey:
+                    key_dict = {
+                        "sqm": "Wohnfläche (nach m²)",
+                        "units": "Wohneinheiten (pro Einheit)",
+                        "direct": "Direkte Zuordnung"
+                    }
+                    add_key = st.selectbox("Umlageschlüssel", list(key_dict.keys()), format_func=lambda x: key_dict[x])
+                with col_adate:
+                    try:
+                        default_date = date(int(add_yr), date.today().month, min(date.today().day, 28))
+                    except Exception:
+                        default_date = date(int(add_yr), 1, 1)
+                    add_date = st.date_input("Belegdatum", value=default_date)
 
-            submit_expense = st.form_submit_button("Kostenposition speichern", type="primary", use_container_width=True)
-            if submit_expense:
-                if not final_cat or not final_cat.strip():
-                    st.error("Bitte gib eine gültige Kostenart ein.")
-                else:
-                    add_expense(
-                        property_id=add_prop_id,
-                        year=int(add_yr),
-                        category=final_cat.strip(),
-                        amount=float(add_amt),
-                        allocation_key=add_key,
-                        description=add_desc.strip(),
-                        receipt_date=str(add_date)
-                    )
-                    set_flash_message(f"Kostenposition '{final_cat}' über {add_amt:,.2f} € erfolgreich für {int(add_yr)} gespeichert.")
-                    st.session_state["active_finance_year"] = int(add_yr)
-                    st.rerun()
+                submit_expense = st.form_submit_button("Kostenposition speichern", type="primary", use_container_width=True)
+                if submit_expense:
+                    if not final_cat or not final_cat.strip():
+                        st.error("Bitte gib eine gültige Kostenart ein.")
+                    else:
+                        add_expense(
+                            property_id=add_prop_id,
+                            year=int(add_yr),
+                            category=final_cat.strip(),
+                            amount=float(add_amt),
+                            allocation_key=add_key,
+                            description=add_desc.strip(),
+                            receipt_date=str(add_date)
+                        )
+                        set_flash_message(f"Kostenposition '{final_cat}' über {add_amt:,.2f} € erfolgreich für {int(add_yr)} gespeichert.")
+                        st.session_state["active_finance_year"] = int(add_yr)
+                        st.rerun()
